@@ -1,0 +1,16 @@
+fastapi
+uvicorn[standard]
+pydantic
+pydantic-settings
+python-dotenv
+
+# Core processing libraries
+docling[vlm]
+transformers
+sentence-transformers
+torch --index-url https://download.pytorch.org/whl/cu121
+accelerate
+bitsandbytes
+
+# Audio processing
+assemblyai

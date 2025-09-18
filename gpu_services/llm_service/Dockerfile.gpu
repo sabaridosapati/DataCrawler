@@ -1,0 +1,15 @@
+# Use the official vLLM image which includes CUDA, PyTorch, and all necessary dependencies.
+# This is the most reliable way to run vLLM in production.
+FROM vllm/vllm-openai:latest
+
+# Set the working directory inside the container.
+WORKDIR /app
+
+# The vLLM server is started by the CMD instruction.
+# We will pass all arguments via the docker-compose.yml file for flexibility,
+# but the command will look like this:
+# CMD ["python", "-m", "vllm.entrypoints.openai.api_server", ...]
+
+# Expose the port that the OpenAI-compatible server will run on.
+# We've planned for this service to be on port 8001.
+EXPOSE 8001
