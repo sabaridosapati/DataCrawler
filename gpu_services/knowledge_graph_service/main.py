@@ -70,5 +70,5 @@ async def build_graph_endpoint(request: BuildGraphRequest):
 
 @app.get("/health")
 def health_check():
-    return {"status": "ok", "processor_initialized": processor_instance is not None}```
+    return {"status": "ok", "processor_initialized": processor_instance is not None}
 

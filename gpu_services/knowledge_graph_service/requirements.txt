@@ -1,0 +1,11 @@
+fastapi
+uvicorn[standard]
+pydantic
+pydantic-settings
+python-dotenv
+
+# Core processing libraries
+neo4j-graphrag
+neo4j
+# The neo4j-graphrag library uses the openai client to talk to OpenAI-compatible APIs
+openai

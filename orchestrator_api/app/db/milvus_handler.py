@@ -6,13 +6,13 @@ from pymilvus import (
 )
 from typing import List, Dict, Any
 
-from app.core.config import settings
+from app.core.config import settings # <-- Import settings
 
 logger = logging.getLogger(__name__)
 
 # --- Milvus Configuration ---
 COLLECTION_NAME = "document_chunks"
-VECTOR_DIMENSION = 768 # Gemini embedding dimension
+VECTOR_DIMENSION = 768 # EmbeddingGemma's dimension
 INDEX_PARAMS = {
     "metric_type": "L2",
     "index_type": "IVF_FLAT",
@@ -27,12 +27,18 @@ class MilvusHandler:
 
     def connect(self):
         """
-        Connects to Milvus and ensures the collection exists.
-        This is a synchronous operation, typically done at startup.
+        Connects to Milvus using host and port from settings.
         """
         try:
-            connections.connect(alias=self.alias, host='localhost', port='19530')
-            logger.info("Successfully connected to Milvus.")
+            # --- THIS IS THE UPDATE ---
+            # Read connection details from the settings file instead of hardcoding them.
+            connections.connect(
+                alias=self.alias, 
+                host=settings.MILVUS_HOST, 
+                port=settings.MILVUS_PORT
+            )
+            logger.info(f"Successfully connected to Milvus at {settings.MILVUS_HOST}:{settings.MILVUS_PORT}.")
+            
             self._create_collection_if_not_exists()
             self.collection = Collection(COLLECTION_NAME)
             self.collection.load()
@@ -40,47 +46,35 @@ class MilvusHandler:
             logger.critical(f"CRITICAL: Failed to connect to Milvus or setup collection. Error: {e}")
             raise
 
+    # ... (the rest of the file remains exactly the same) ...
     def _create_collection_if_not_exists(self):
-        """
-        Defines the schema and creates the Milvus collection if it's missing.
-        This is the foundation for our user-wise data handling via metadata.
-        """
         if utility.has_collection(COLLECTION_NAME):
-            logger.info(f"Milvus collection '{COLLECTION_NAME}' already exists.")
             return
-
-        logger.info(f"Milvus collection '{COLLECTION_NAME}' not found. Creating...")
-        
-        # Define fields. 'user_id' is our key for multi-tenancy.
         fields = [
             FieldSchema(name="pk", dtype=DataType.INT64, is_primary=True, auto_id=True),
             FieldSchema(name="user_id", dtype=DataType.VARCHAR, max_length=255),
             FieldSchema(name="doc_id", dtype=DataType.VARCHAR, max_length=255),
+            FieldSchema(name="chunk_index", dtype=DataType.INT64),
             FieldSchema(name="chunk_text", dtype=DataType.VARCHAR, max_length=4000),
             FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=VECTOR_DIMENSION)
         ]
         schema = CollectionSchema(fields, "Document chunks for user-specific RAG")
-        
         collection = Collection(COLLECTION_NAME, schema)
         collection.create_index(field_name="embedding", index_params=INDEX_PARAMS)
         logger.info(f"Successfully created Milvus collection '{COLLECTION_NAME}' and its index.")
 
     def insert_chunks(self, data: List[Dict[str, Any]]):
-        """
-        Inserts a batch of document chunks into the collection.
-        'data' should be a list of dicts, e.g.,
-        [{'user_id': 'x', 'doc_id': 'y', 'chunk_text': '...', 'embedding': [...]}]
-        """
         if not self.collection:
             raise RuntimeError("Milvus collection not loaded.")
         
-        # Pymilvus expects lists of values for each field
-        entities = [
-            data.get("user_id"),
-            data.get("doc_id"),
-            data.get("chunk_text"),
-            data.get("embedding")
-        ]
+        # Prepare data for insertion
+        user_ids = [item['user_id'] for item in data]
+        doc_ids = [item['doc_id'] for item in data]
+        chunk_indices = [item['chunk_index'] for item in data]
+        chunk_texts = [item['chunk_text'] for item in data]
+        embeddings = [item['embedding'] for item in data]
+        
+        entities = [user_ids, doc_ids, chunk_indices, chunk_texts, embeddings]
 
         mr = self.collection.insert(entities)
         self.collection.flush()
@@ -88,35 +82,28 @@ class MilvusHandler:
         return mr
 
     def search_user_vectors(self, user_id: str, query_vector: List[float], top_k: int = 5) -> List[dict]:
-        """
-        Searches for vectors belonging ONLY to a specific user.
-        The 'expr' parameter is crucial for ensuring data isolation.
-        """
         if not self.collection:
             raise RuntimeError("Milvus collection not loaded.")
-
         results = self.collection.search(
             data=[query_vector],
             anns_field="embedding",
             param=SEARCH_PARAMS,
             limit=top_k,
-            expr=f"user_id == '{user_id}'", # <-- THIS ENFORCES USER-WISE SEARCH
-            output_fields=["doc_id", "chunk_text"] # Fields to return alongside the result
+            expr=f"user_id == '{user_id}'",
+            output_fields=["doc_id", "chunk_text", "chunk_index"]
         )
-        
         hits = results[0]
         response = [
             {
                 "id": hit.id,
                 "distance": hit.distance,
                 "doc_id": hit.entity.get('doc_id'),
-                "chunk_text": hit.entity.get('chunk_text')
+                "chunk_text": hit.entity.get('chunk_text'),
+                "chunk_index": hit.entity.get('chunk_index')
             }
             for hit in hits
         ]
         logger.info(f"Milvus search for user '{user_id}' found {len(response)} results.")
         return response
 
-# --- Singleton Instance ---
-# Note: Connection is established in the main app lifespan event.
 milvus_db_handler = MilvusHandler()
