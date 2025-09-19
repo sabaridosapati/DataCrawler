@@ -5,8 +5,6 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./data:/app/data # Mounts the local data directory into the container
+      - ./data:/app/data
     env_file:
       - ./orchestrator_api/.env
-    # Use host networking to easily connect to localhost databases
-    network_mode: "host"
