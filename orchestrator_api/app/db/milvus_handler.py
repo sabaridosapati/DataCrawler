@@ -27,26 +27,23 @@ class MilvusHandler:
 
     def connect(self):
         """
-        Connects to Milvus using host and port from settings.
+        Connects to a native Milvus instance using host and port.
         """
         try:
-            # --- THIS IS THE UPDATE ---
-            # Read connection details from the settings file instead of hardcoding them.
+            # Use host and port from settings for native connection
             connections.connect(
                 alias=self.alias, 
                 host=settings.MILVUS_HOST, 
                 port=settings.MILVUS_PORT
             )
             logger.info(f"Successfully connected to Milvus at {settings.MILVUS_HOST}:{settings.MILVUS_PORT}.")
-            
             self._create_collection_if_not_exists()
             self.collection = Collection(COLLECTION_NAME)
             self.collection.load()
         except Exception as e:
-            logger.critical(f"CRITICAL: Failed to connect to Milvus or setup collection. Error: {e}")
+            logger.critical(f"CRITICAL: Failed to connect to Milvus. Error: {e}")
             raise
 
-    # ... (the rest of the file remains exactly the same) ...
     def _create_collection_if_not_exists(self):
         if utility.has_collection(COLLECTION_NAME):
             return

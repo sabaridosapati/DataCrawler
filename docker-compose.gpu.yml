@@ -1,90 +1,73 @@
-# File: docker-compose.mac.yml
 version: '3.8'
 
 services:
-  orchestrator_api:
-    build: ./orchestrator_api
-    container_name: orchestrator_api
+  llm_service:
+    build:
+      context: ./gpu_services/llm_service
+      dockerfile: Dockerfile.gpu
+    container_name: llm_service
     ports:
-      - "8000:8000"
+      - "8001:8001"
+    env_file:
+      - ./gpu_services/llm_service/.env
+    volumes:
+      - hf_cache:/root/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    command: ["python", "-m", "vllm.entrypoints.openai.api_server", "--host", "0.0.0.0", "--port", "8001", "--model", "google/gemma-3n-E2B", "--trust-remote-code", "--gpu-memory-utilization", "0.90"]
+
+  docling_service:
+    build:
+      context: ./gpu_services/docling_service
+      dockerfile: Dockerfile.gpu
+    container_name: docling_service
+    ports:
+      - "8004:8004"
+    env_file:
+      - ./gpu_services/docling_service/.env
     volumes:
       - ./data:/app/data
+      - docling_cache:/root/.cache/docling
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  embedding_service:
+    build:
+      context: ./gpu_services/embedding_service
+      dockerfile: Dockerfile.gpu
+    container_name: embedding_service
+    ports:
+      - "8002:8002"
+    volumes:
+      - hf_cache:/root/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  knowledge_graph_service:
+    build:
+      context: ./gpu_services/knowledge_graph_service
+      dockerfile: Dockerfile.gpu
+    container_name: knowledge_graph_service
+    ports:
+      - "8003:8003"
     env_file:
-      - ./orchestrator_api/.env
-    depends_on:
-      - mongodb
-      - neo4j
-      - milvus-standalone
-    networks:
-      - app-network
-
-  mongodb:
-    image: mongo:7.0
-    container_name: mongodb
-    ports:
-      - "27017:27017"
-    volumes:
-      - mongo_data:/data/db
-    networks:
-      - app-network
-
-  neo4j:
-    image: neo4j:5.18-enterprise
-    container_name: neo4j
-    ports:
-      - "7474:7474"
-      - "7687:7687"
-    volumes:
-      - neo4j_data:/data
-    environment:
-      - NEO4J_AUTH=neo4j/${NEO4J_PASSWORD}
-      - NEO4J_PLUGINS=["apoc"]
-      - NEO4J_ACCEPT_LICENSE_AGREEMENT=yes
-    networks:
-      - app-network
-
-  milvus-standalone:
-    image: milvusdb/milvus:v2.3.1-standalone
-    container_name: milvus-standalone
-    ports:
-      - "19530:19530"
-      - "9091:9091"
-    volumes:
-      - milvus_data:/milvus/data
-    environment:
-      - ETCD_ENDPOINTS=etcd:2379
-      - MINIO_ADDRESS=minio:9000
-    depends_on:
-      - etcd
-      - minio
-    networks:
-      - app-network
-
-  etcd:
-    image: quay.io/coreos/etcd:v3.5.5
-    container_name: etcd
-    volumes:
-      - etcd_data:/etcd
-    command: etcd -advertise-client-urls=http://etcd:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
-    networks:
-      - app-network
-
-  minio:
-    image: minio/minio:latest # <-- Using the fixed image tag
-    container_name: minio
-    volumes:
-      - minio_data:/data
-    command: server /data
-    networks:
-      - app-network
-
-networks:
-  app-network:
-    driver: bridge
+      - ./gpu_services/knowledge_graph_service/.env
 
 volumes:
-  mongo_data:
-  neo4j_data:
-  milvus_data:
-  etcd_data:
-  minio_data:
+  hf_cache:
+  docling_cache:

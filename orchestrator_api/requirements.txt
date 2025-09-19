@@ -7,3 +7,7 @@ passlib[bcrypt]
 motor
 python-multipart
 httpx
+pydantic[email]
+neo4j
+pymilvus
+loguru
