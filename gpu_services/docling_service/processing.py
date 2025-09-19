@@ -3,66 +3,133 @@
 import logging
 import json
 from pathlib import Path
-from typing import Dict, List, Any
+from typing import Dict, Any
 
 import assemblyai as aai
+from transformers import AutoTokenizer
+
+# --- IMPORTS FOR ADVANCED CHUNKING ---
+from docling_core.types.doc import DoclingDocument
+from docling_core.types.doc.document import (
+    PictureClassificationData,
+    PictureDescriptionData,
+    PictureItem,
+    PictureMoleculeData,
+)
+from docling_core.transforms.serializer.base import BaseDocSerializer, SerializationResult
+from docling_core.transforms.serializer.common import create_ser_result
+from docling_core.transforms.serializer.markdown import MarkdownPictureSerializer, MarkdownTableSerializer
+from docling_core.transforms.chunker.hierarchical_chunker import ChunkingDocSerializer, ChunkingSerializerProvider
+from typing_extensions import override
+
+# --- STANDARD DOCLING IMPORTS ---
 from docling.document_converter import DocumentConverter, PdfFormatOption
 from docling.pipeline.vlm_pipeline import VlmPipeline
 from docling.datamodel.pipeline_options import VlmPipelineOptions
 from docling.datamodel import vlm_model_specs
 from docling.chunking import HybridChunker
 from docling_core.transforms.chunker.tokenizer.huggingface import HuggingFaceTokenizer
-from transformers import AutoTokenizer
 
 from config import settings
 
 logger = logging.getLogger(__name__)
 
+
+# --- 1. DEFINE ADVANCED SERIALIZERS AS PER YOUR DOCUMENTATION ---
+
+class AnnotationPictureSerializer(MarkdownPictureSerializer):
+    """
+    Custom picture serialization strategy that leverages picture annotations
+    to create rich, descriptive text instead of a simple placeholder.
+    """
+    @override
+    def serialize(
+        self,
+        *,
+        item: PictureItem,
+        doc_serializer: BaseDocSerializer,
+        doc: DoclingDocument,
+        **kwargs: Any,
+    ) -> SerializationResult:
+        text_parts: list[str] = []
+        for annotation in item.annotations:
+            if isinstance(annotation, PictureClassificationData):
+                predicted_class = (
+                    annotation.predicted_classes[0].class_name
+                    if annotation.predicted_classes
+                    else None
+                )
+                if predicted_class is not None:
+                    text_parts.append(f"Picture type: {predicted_class}")
+            elif isinstance(annotation, PictureMoleculeData):
+                text_parts.append(f"SMILES: {annotation.smi}")
+            elif isinstance(annotation, PictureDescriptionData):
+                text_parts.append(f"Picture description: {annotation.text}")
+
+        if not text_parts:
+            return super().serialize(item=item, doc_serializer=doc_serializer, doc=doc, **kwargs)
+
+        text_res = "\n".join(text_parts)
+        text_res = doc_serializer.post_process(text=text_res)
+        return create_ser_result(text=text_res, span_source=item)
+
+
+# --- 2. CREATE A COMBINED PROVIDER FOR ALL ADVANCED SERIALIZERS ---
+
+class AdvancedSerializerProvider(ChunkingSerializerProvider):
+    """
+    A single, powerful provider that configures the chunker to use our
+    desired state-of-the-art serializers for different document elements.
+    """
+    def get_serializer(self, doc: DoclingDocument):
+        return ChunkingDocSerializer(
+            doc=doc,
+            # Use the Markdown serializer for tables for better context
+            table_serializer=MarkdownTableSerializer(),
+            # Use our custom annotation-based serializer for pictures
+            picture_serializer=AnnotationPictureSerializer(),
+        )
+
+
 class DoclingProcessor:
     """
-    A singleton class to handle all document processing tasks.
-    It initializes heavy models once to be reused across API calls.
+    A singleton class to handle all document and audio processing tasks.
+    - Uses Granite-Docling for documents with advanced chunking.
+    - Uses AssemblyAI for audio.
     """
     def __init__(self):
         logger.info(f"Initializing DoclingProcessor on device: {settings.DEVICE}")
-        
-        # 1. Configure the VLM Pipeline with Granite-Docling
-        # This uses the powerful vision-language model for end-to-end conversion.
-        # It's excellent for complex layouts, tables, and embedded images.
-        pipeline_options = VlmPipelineOptions(
+
+        # --- 3. Configure the VLM Pipeline for Documents ---
+        vlm_pipeline_options = VlmPipelineOptions(
             vlm_options=vlm_model_specs.GRANITEDOCLING_TRANSFORMERS,
         )
-        
-        # 2. Configure the DocumentConverter
-        # This is the main entry point into the docling library.
         self.converter = DocumentConverter(
             format_options={
-                # We specify that for PDFs, we want to use the VLM pipeline.
-                # Docling will automatically handle other formats like DOCX, images, etc.
                 "pdf": PdfFormatOption(
                     pipeline_cls=VlmPipeline,
-                    pipeline_options=pipeline_options,
+                    pipeline_options=vlm_pipeline_options,
                 ),
             }
         )
-        
-        # 3. Configure the Hybrid Chunker for intelligent, overlapping chunks
-        # We use the tokenizer from a popular embedding model to ensure chunk sizes
-        # are optimized for the subsequent embedding step.
-        tokenizer = HuggingFaceTokenizer(
-            tokenizer=AutoTokenizer.from_pretrained("sentence-transformers/all-MiniLM-L6-v2"),
-            max_tokens=512, # Max tokens for the embedding model
-        )
-        self.chunker = HybridChunker(
-            tokenizer=tokenizer,
-            merge_peers=True, # Merges small, adjacent chunks for better context
-        )
-        
-        # 4. Configure AssemblyAI client
+
+        # --- 4. Configure the AssemblyAI client for Audio ---
         aai.settings.api_key = settings.ASSEMBLYAI_API_KEY
         self.transcriber = aai.Transcriber()
 
-        logger.info("DoclingProcessor initialized successfully.")
+        # --- 5. CONFIGURE THE HYBRID CHUNKER WITH THE ADVANCED PROVIDER ---
+        tokenizer = HuggingFaceTokenizer(
+            tokenizer=AutoTokenizer.from_pretrained("sentence-transformers/all-MiniLM-L6-v2"),
+            max_tokens=512,
+        )
+        self.chunker = HybridChunker(
+            tokenizer=tokenizer,
+            merge_peers=True,
+            # This is the crucial step to enable advanced serialization
+            serializer_provider=AdvancedSerializerProvider(),
+        )
+
+        logger.info("DoclingProcessor initialized successfully with Granite-Docling, AssemblyAI, and ADVANCED CHUNKING.")
 
     async def process_file(self, input_path: str, output_dir: str) -> Dict[str, str]:
         """
@@ -74,9 +141,7 @@ class DoclingProcessor:
 
         ext = file_path.suffix.lower()
         
-        # Supported document/image formats for Docling
         doc_formats = ['.pdf', '.docx', '.pptx', '.html', '.md', '.png', '.jpg', '.jpeg', '.bmp']
-        # Supported audio formats for AssemblyAI
         audio_formats = ['.mp3', '.wav', '.m4a', '.flac', '.ogg']
 
         if ext in doc_formats:
@@ -88,39 +153,34 @@ class DoclingProcessor:
 
     def _process_document(self, input_path: Path, output_dir: Path) -> Dict[str, str]:
         """Handles PDFs, DOCX, images, etc., using the Docling VLM pipeline."""
-        logger.info(f"Processing document with Docling VLM: {input_path}")
+        logger.info(f"Processing document with Granite-Docling VLM: {input_path}")
         
-        # Convert the source file into a structured DoclingDocument
         result = self.converter.convert(source=str(input_path))
         doc = result.document
         
-        # --- Chunking ---
-        logger.info("Chunking extracted content...")
+        logger.info("Chunking extracted content with advanced serializers...")
         chunks_data = []
         docling_chunks = self.chunker.chunk(dl_doc=doc)
         
         for i, chunk in enumerate(docling_chunks):
-            # 'contextualize' adds headers/titles to the chunk for better embedding context
+            # 'contextualize' now produces the rich, serialized text
             contextual_text = self.chunker.contextualize(chunk=chunk)
             chunks_data.append({
                 "chunk_index": i,
                 "text": contextual_text,
-                "metadata": chunk.meta.model_dump() # Store rich metadata
+                "metadata": chunk.meta.model_dump()
             })
         
-        # --- Serialization (Saving Outputs) ---
         base_name = input_path.stem
         
-        # 1. Save the full, extracted content as a rich Markdown file
         md_output_path = output_dir / f"{base_name}.md"
         doc.save_as_markdown(md_output_path)
         logger.info(f"Saved full Markdown output to: {md_output_path}")
 
-        # 2. Save the structured chunks as a JSON file for the next pipeline step
         chunks_output_path = output_dir / f"{base_name}_chunks.json"
         with open(chunks_output_path, 'w', encoding='utf-8') as f:
             json.dump(chunks_data, f, indent=2)
-        logger.info(f"Saved {len(chunks_data)} chunks to: {chunks_output_path}")
+        logger.info(f"Saved {len(chunks_data)} context-rich chunks to: {chunks_output_path}")
 
         return {
             "markdown_path": str(md_output_path),
@@ -128,7 +188,7 @@ class DoclingProcessor:
         }
 
     async def _process_audio(self, input_path: Path, output_dir: Path) -> Dict[str, str]:
-        """Handles audio files using AssemblyAI for transcription."""
+        """Handles audio files using the AssemblyAI API for transcription."""
         logger.info(f"Processing audio with AssemblyAI: {input_path}")
         
         transcript = self.transcriber.transcribe(str(input_path))
@@ -138,17 +198,14 @@ class DoclingProcessor:
 
         full_text = transcript.text
         
-        # --- Serialization (Saving Outputs) ---
         base_name = input_path.stem
         
-        # 1. Save the full transcript as a simple Markdown file
         md_output_path = output_dir / f"{base_name}.md"
         with open(md_output_path, 'w', encoding='utf-8') as f:
             f.write(f"# Transcription of {input_path.name}\n\n")
             f.write(full_text)
         logger.info(f"Saved full transcript to: {md_output_path}")
 
-        # 2. Create a single chunk containing the full text
         chunks_data = [{
             "chunk_index": 0,
             "text": full_text,

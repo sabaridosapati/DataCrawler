@@ -4,8 +4,9 @@ pydantic
 pydantic-settings
 python-dotenv
 
-# Core processing libraries
-neo4j-graphrag
+# The new, powerful graph building library
+graphiti-core
+
+# Neo4j driver is still required for the library to connect
 neo4j
-# The neo4j-graphrag library uses the openai client to talk to OpenAI-compatible APIs
-openai
+httpx

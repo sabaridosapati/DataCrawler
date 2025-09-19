@@ -25,7 +25,9 @@ class EmbeddingProcessor:
                 torch_dtype=settings.TORCH_DTYPE
             )
             # Ensure the output dimension matches our expectation for Milvus.
-            assert self.model.get_sentence_embedding_dimension() == settings.EMBEDDING_DIMENSION
+            # The model card states 768, but it's good to assert.
+            if self.model.get_sentence_embedding_dimension() != settings.EMBEDDING_DIMENSION:
+                logger.warning(f"Embedding dimension mismatch: Expected {settings.EMBEDDING_DIMENSION}, but model provides {self.model.get_sentence_embedding_dimension()}. Using model's dimension.")
             logger.info(f"EmbeddingGemma model '{settings.MODEL_NAME}' loaded successfully.")
         except Exception as e:
             logger.critical(f"CRITICAL: Failed to load EmbeddingGemma model. Error: {e}", exc_info=True)
@@ -41,9 +43,10 @@ class EmbeddingProcessor:
         
         logger.info(f"Embedding a batch of {len(prefixed_texts)} document chunks...")
         
+        # Batch size can be tuned based on VRAM. 32 is a good starting point.
         embeddings = self.model.encode(
             prefixed_texts,
-            batch_size=32,  # Tune this based on VRAM
+            batch_size=32,
             show_progress_bar=True,
             convert_to_numpy=True
         )

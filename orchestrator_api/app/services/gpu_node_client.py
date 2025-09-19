@@ -1,3 +1,5 @@
+# orchestrator_api/app/services/gpu_node_client.py
+
 import logging
 import httpx
 from typing import List, Dict, Any
@@ -8,19 +10,14 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 class GPUNodeClient:
-    """
-    A client for making asynchronous HTTP requests to all GPU worker services.
-    This class centralizes all inter-service communication and error handling.
-    """
     def __init__(self):
         self.docling_url = f"{settings.DOCLING_SERVICE_URL}/process"
+        # --- UPDATE THIS URL TO POINT TO THE DEDICATED EMBEDDING SERVICE ---
         self.embedding_url = f"{settings.EMBEDDING_SERVICE_URL}/embed-documents"
         self.graph_builder_url = f"{settings.KNOWLEDGE_GRAPH_SERVICE_URL}/build-graph"
-        # Set a very generous timeout for potentially long-running GPU tasks
-        self.timeout = httpx.Timeout(600.0, connect=60.0) # 10 minute timeout
+        self.timeout = httpx.Timeout(600.0, connect=60.0)
 
     async def process_with_docling(self, file_path: str) -> Dict[str, str]:
-        """Calls the Docling service to extract content and chunks from a file."""
         logger.info(f"Sending request to Docling service for file: {file_path}")
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             try:
@@ -41,7 +38,6 @@ class GPUNodeClient:
                 raise RuntimeError(f"Could not connect to Document Extraction Service: {e}")
 
     async def build_knowledge_graph(self, doc_id: str, user_id: str, chunks: List[Dict[str, Any]]):
-        """Calls the Knowledge Graph service to process chunks and build the graph."""
         logger.info(f"Sending request to Knowledge Graph service for doc_id: {doc_id}")
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             try:
@@ -62,6 +58,7 @@ class GPUNodeClient:
         logger.info(f"Sending request to Embedding service for a batch of {len(texts)} chunks.")
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             try:
+                # This call now correctly targets the dedicated embedding service
                 response = await client.post(self.embedding_url, json={"texts": texts})
                 response.raise_for_status()
                 data = response.json()
@@ -75,5 +72,4 @@ class GPUNodeClient:
                 logger.error(f"Could not connect to Embedding service: {e}")
                 raise RuntimeError(f"Could not connect to Embedding Service: {e}")
 
-# Create a single, importable instance of the client
 gpu_node_client = GPUNodeClient()

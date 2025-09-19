@@ -1,27 +1,38 @@
-# Use an official PyTorch image with CUDA 12.1 support
-FROM pytorch/pytorch:2.2.1-cuda12.1-cudnn8-runtime
+# Use the official NVIDIA CUDA runtime image as a base
+FROM nvidia/cuda:12.1.1-runtime-ubuntu22.04
 
-# Set environment variables
-ENV PYTHONDONTWRITEBYTECODE 1
-ENV PYTHONUNBUFFERED 1
+# Set environment variables to prevent interactive prompts during installation
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
 
-# Install system dependencies required for some libraries (e.g., audio processing)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ffmpeg \
+# Install Python, pip, and other essential system dependencies
+RUN apt-get update && apt-get install -y \
+    python3.10 \
+    python3-pip \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
-# Set the working directory in the container
+# Set the working directory inside the container
 WORKDIR /app
 
-# Copy the requirements file and install dependencies
+# Copy the requirements file first to leverage Docker layer caching
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+
+# --- ROBUST INSTALLATION PROCESS ---
+# 1. Install torch separately. While not strictly necessary with the next step,
+#    it can sometimes help isolate issues with this specific large package.
+RUN pip install --no-cache-dir --timeout=600 torch --index-url https://download.pytorch.org/whl/cu121
+
+# 2. Install the rest of the requirements WITH A LONG TIMEOUT.
+#    This is the key fix. The timeout of 600 seconds (10 minutes) will now apply
+#    to the download of nvidia-cusparse and any other large packages.
+RUN pip install --no-cache-dir --timeout=600 -r requirements.txt
 
 # Copy the rest of the application code into the container
 COPY . .
 
-# Expose the port the app runs on
+# Expose the port the application will run on
 EXPOSE 8004
 
-# Command to run the application
+# Define the command to run the application
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8004"]

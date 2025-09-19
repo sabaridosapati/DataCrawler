@@ -2,8 +2,6 @@ fastapi
 uvicorn[standard]
 pydantic
 pydantic-settings
-
-# Core processing libraries
 sentence-transformers
 torch --index-url https://download.pytorch.org/whl/cu121
 transformers

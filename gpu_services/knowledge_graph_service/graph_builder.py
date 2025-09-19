@@ -1,100 +1,144 @@
-# gpu_services/knowledge_graph_service/graph_builder.py
-
 import logging
-import neo4j
 from typing import List, Dict, Any
+import httpx
 
-# Import the specific components we need from neo4j-graphrag
-from neo4j_graphrag.llm import OpenAILLM
-from neo4j_graphrag.experimental.pipeline.kg_builder import SimpleKGPipeline
-from neo4j_graphrag.experimental.components.text_splitters.fixed_size_splitter import FixedSizeSplitter
-from neo4j_graphrag.experimental.components.input_loader.text_loader import TextLoader
+from graphiti_core import Graphiti
+from graphiti_core.llm_client.config import LLMConfig
+from graphiti_core.llm_client.openai_client import OpenAIClient
+from graphiti_core.embedder.base import Embedder
 
 from config import settings
 
 logger = logging.getLogger(__name__)
 
-class GraphBuilderProcessor:
-    """
-    Handles knowledge graph creation using neo4j-graphrag and a local LLM.
-    """
-    def __init__(self):
-        logger.info("Initializing GraphBuilderProcessor...")
-        
-        # 1. Connect to the Neo4j Database
-        self.neo4j_driver = neo4j.GraphDatabase.driver(
-            settings.NEO4J_URI,
-            auth=(settings.NEO4J_USER, settings.NEO4J_PASSWORD)
-        )
-        
-        # 2. Configure the LLM to point to our LOCAL gemma-3n model.
-        # The OpenAILLM class works perfectly with any OpenAI-compatible API,
-        # which is what our vLLM-powered llm_service provides.
-        self.local_llm = OpenAILLM(
-            # This model name must match the model being served by vLLM.
-            model_name="google/gemma-3n-E2B",
-            model_params={
-                "temperature": 0.0,
-                "response_format": {"type": "json_object"} # Crucial for reliable extraction
-            },
-            api_key="placeholder-key", # vLLM doesn't require a key
-            base_url=settings.LOCAL_LLM_URL # This points to our llm_service container
-        )
-        
-        # 3. Define a generic schema for extraction. This can be expanded later.
-        self.node_labels = ["Entity", "Person", "Organization", "Location", "Concept", "Event", "Product", "Technology"]
-        self.rel_types = ["RELATES_TO", "LOCATED_IN", "PART_OF", "WORKS_FOR", "PRODUCES", "USES"]
+# --- 1. DEFINE A RICH SCHEMA FOR THE KNOWLEDGE GRAPH ---
+# This tells the LLM exactly what kinds of information we care about.
+NODE_LABELS = [
+    "Person", "Organization", "Location", "Product", "Technology",
+    "Event", "Concept", "Project", "Skill", "Document", "Software"
+]
 
-        logger.info(f"GraphBuilderProcessor initialized to use local LLM at {settings.LOCAL_LLM_URL}")
+RELATIONSHIP_TYPES = [
+    "WORKS_FOR", "LOCATED_IN", "PRODUCES", "USES", "PART_OF",
+    "MEMBER_OF", "ATTENDED", "CREATED", "MENTIONS", "HAS_SKILL",
+    "DEVELOPS", "COMPETES_WITH"
+]
+
+# --- 2. ENGINEER A HIGH-QUALITY SYSTEM PROMPT ---
+# This is the most critical step for state-of-the-art quality.
+# We give the LLM a role, a task, a strict schema, and a required output format.
+SYSTEM_PROMPT = f"""
+You are a world-class, highly intelligent knowledge graph extraction system.
+Your task is to analyze the provided text and extract entities and their relationships.
+
+**INSTRUCTIONS:**
+1.  **Identify Entities:** Extract all relevant entities from the text.
+2.  **Assign Labels:** Assign a label to each entity using ONLY the following allowed labels: {NODE_LABELS}.
+3.  **Identify Relationships:** Identify meaningful, directed relationships between the extracted entities.
+4.  **Assign Types:** Assign a relationship type using ONLY the following allowed types: {RELATIONSHIP_TYPES}.
+5.  **Output Format:** Your final output MUST be a single, valid JSON object. This object must contain two keys: "nodes" and "relationships".
+    - The "nodes" key must have a list of objects, where each object has "id" (the entity name) and "label".
+    - The "relationships" key must have a list of objects, where each object has "source" (the 'id' of the source node), "target" (the 'id' of the target node), and "type".
+
+**EXAMPLE OUTPUT:**
+{{
+  "nodes": [
+    {{ "id": "John Doe", "label": "Person" }},
+    {{ "id": "Acme Corp", "label": "Organization" }}
+  ],
+  "relationships": [
+    {{ "source": "John Doe", "target": "Acme Corp", "type": "WORKS_FOR" }}
+  ]
+}}
+
+**CONSTRAINTS:**
+- Be precise. Only extract information that is explicitly stated or strongly implied in the text.
+- Do not hallucinate or invent information.
+- Adhere strictly to the provided node labels and relationship types.
+- Ensure your output is a valid JSON object.
+"""
+
+
+# This RemoteEmbeddingClient correctly calls our dedicated embedding_service
+class RemoteEmbeddingClient(Embedder):
+    def __init__(self, base_url: str):
+        self.url = base_url
+        self.timeout = httpx.Timeout(300.0, connect=60.0)
+        logger.info(f"RemoteEmbeddingClient initialized for URL: {self.url}")
+
+    async def embed_documents(self, texts: List[str]) -> List[List[float]]:
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            try:
+                response = await client.post(self.url, json={"texts": texts})
+                response.raise_for_status()
+                return response.json()["embeddings"]
+            except Exception as e:
+                logger.error(f"Failed to get embeddings from remote service: {e}")
+                raise RuntimeError(f"Embedding service call failed: {e}")
+
+    async def embed_query(self, query: str) -> List[float]:
+        embeddings = await self.embed_documents([query])
+        return embeddings[0]
+
+
+class GraphBuilderProcessor:
+    def __init__(self):
+        logger.info("Initializing State-of-the-Art GraphBuilderProcessor...")
+
+        # --- 3. CONFIGURE THE LLM CLIENT WITH OUR ADVANCED PROMPT ---
+        llm_config = LLMConfig(
+            api_key="vllm",
+            model="google/gemma-3n-E2B-it",
+            base_url=settings.LOCAL_LLM_URL,
+            # Inject our high-quality prompt into the LLM's configuration
+            system_prompt=SYSTEM_PROMPT,
+            # Set a low temperature for consistent, factual extraction
+            temperature=0.0,
+        )
+        llm_client = OpenAIClient(config=llm_config)
+
+        # Initialize our custom embedder client
+        embedder = RemoteEmbeddingClient(base_url=settings.EMBEDDING_SERVICE_URL)
+
+        # Initialize Graphiti with our powerful, custom-configured clients
+        try:
+            self.graphiti = Graphiti(
+                settings.NEO4J_URI,
+                settings.NEO4J_USER,
+                settings.NEO4J_PASSWORD,
+                llm_client=llm_client,
+                embedder=embedder,
+            )
+            logger.info("Graphiti initialized successfully with custom prompt and remote embedder.")
+        except Exception as e:
+            logger.critical(f"CRITICAL: Failed to initialize Graphiti. Error: {e}", exc_info=True)
+            raise
 
     async def build_graph_from_chunks(self, doc_id: str, user_id: str, chunks: List[Dict[str, Any]]):
         """
-        Processes text chunks to extract entities/relations using the local LLM
-        and builds the knowledge graph in Neo4j.
+        Processes text chunks using the Graphiti pipeline, guided by our advanced prompt,
+        to build a rich and structured knowledge graph.
         """
-        
-        full_text = "\n\n---CHUNK SEPARATOR---\n\n".join([chunk['text'] for chunk in chunks])
-        
-        # We don't need an embedder in this pipeline step.
-        kg_builder = SimpleKGPipeline(
-            llm=self.local_llm,
-            driver=self.neo4j_driver,
-            text_splitter=FixedSizeSplitter(chunk_size=1024, chunk_overlap=200),
-            embedder=None, # Embedding is a separate service
-            entities=self.node_labels,
-            relations=self.rel_types,
-        )
-        
-        logger.info(f"Running KG pipeline for doc_id: {doc_id} using local Gemma model.")
-        
-        text_loader = TextLoader()
-        await text_loader.load(full_text, {"doc_id": doc_id, "source": doc_id})
-        
-        await kg_builder.run_async(data_source=text_loader.get_data_source())
-        
-        # This final step ensures the newly created graph is owned by the correct user.
-        await self._link_graph_to_user(user_id, doc_id)
-        
-        logger.info(f"Successfully built and linked graph for doc_id: {doc_id}")
+        if not chunks:
+            logger.warning(f"No chunks provided for doc_id: {doc_id}. Skipping graph build.")
+            return
 
-    async def _link_graph_to_user(self, user_id: str, doc_id: str):
-        """
-        Connects the :Document node created by the pipeline to the correct :User node.
-        This is the key to our multi-tenant graph strategy.
-        """
-        # The pipeline creates a Document node with a 'source' property.
-        query = """
-        MATCH (u:User {username: $user_id})
-        MATCH (d:Document {source: $doc_id})
-        MERGE (u)-[:OWNS]->(d)
-        """
-        # Using an async session for Neo4j operations
-        async with self.neo4j_driver.session() as session:
-            await session.run(query, user_id=user_id, doc_id=doc_id)
+        logger.info(f"Running state-of-the-art Graphiti pipeline for doc_id: {doc_id} with {len(chunks)} chunks.")
+        texts_to_process = [chunk['text'] for chunk in chunks]
+
+        try:
+            # Graphiti will now use our highly-instructed LLM and remote embedder
+            await self.graphiti.add_documents(
+                texts_to_process,
+                metadata={"doc_id": doc_id, "user_id": user_id}
+            )
+            logger.info(f"Successfully built graph for doc_id: {doc_id} using advanced pipeline.")
+        except Exception as e:
+            logger.error(f"Graphiti pipeline failed for doc_id: {doc_id}. Error: {e}", exc_info=True)
+            raise RuntimeError(f"Graphiti pipeline failed: {e}")
 
     def close(self):
-        if self.neo4j_driver:
-            self.neo4j_driver.close()
+        logger.info("Closing GraphBuilderProcessor.")
 
 # Create a single instance to be loaded at startup
 graph_builder_processor = GraphBuilderProcessor()
