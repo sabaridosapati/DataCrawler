@@ -1,25 +1,49 @@
 #!/bin/bash
-# setup_dell_laptop.sh
-# Automated setup script for Dell Laptop (Embedding & Vector Services)
+# start_dell_services.sh
+# Startup script for Dell Laptop - Mixed Deployment
 
 set -e
 
-echo "=== Dell Laptop Setup (Embedding & Vector Services) ==="
-echo "This script will set up embedding service, knowledge graph service, and Milvus vector database"
+echo "=== Starting Dell Laptop Services (Mixed Deployment) ==="
+echo "Docker: Milvus v2.6.2 Vector Database"
+echo "Local: Embedding Service + Knowledge Graph Service"
 echo ""
 
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-print_status() { echo -e "${GREEN}[INFO]${NC} $1"; }
+print_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
+print_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
 print_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
 print_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
+# Function to check if service is running
+check_service() {
+    local service_name="$1"
+    local health_url="$2"
+    local max_attempts=30
+    local attempt=1
+    
+    print_info "Checking $service_name..."
+    while [ $attempt -le $max_attempts ]; do
+        if curl -s "$health_url" > /dev/null 2>&1; then
+            print_success "$service_name is running ✓"
+            return 0
+        fi
+        echo -n "."
+        sleep 2
+        ((attempt++))
+    done
+    print_error "$service_name failed to start"
+    return 1
+}
+
 # Check prerequisites
-print_status "Checking prerequisites..."
+print_info "Checking prerequisites..."
 
 # Check CUDA
 if ! command -v nvidia-smi &> /dev/null; then
@@ -27,228 +51,154 @@ if ! command -v nvidia-smi &> /dev/null; then
     exit 1
 fi
 
-print_status "GPU Status:"
+print_info "GPU Status:"
 nvidia-smi --query-gpu=name,memory.total,memory.used --format=csv,noheader,nounits
 
-# Check Python version
-PYTHON_VERSION=$(python3 --version 2>&1 | grep -Po '(?<=Python )\d+\.\d+')
-if [ "$(printf '%s\n' "3.10" "$PYTHON_VERSION" | sort -V | head -n1)" != "3.10" ]; then
-    print_error "Python 3.10+ required, found $PYTHON_VERSION"
-    exit 1
-fi
-
-print_status "Python version: $PYTHON_VERSION ✓"
-
-# Check Docker (for Milvus dependencies)
+# Check Docker
 if ! command -v docker &> /dev/null; then
-    print_error "Docker is required for Milvus. Please install Docker first."
+    print_error "Docker is not installed. Please install Docker Desktop first."
     exit 1
 fi
 
-print_status "Docker found ✓"
+# Step 1: Start Milvus v2.6.2 (Docker)
+print_info "Step 1: Starting Milvus v2.6.2 (Docker)..."
 
-# Create directory structure
-print_status "Creating directory structure..."
-mkdir -p data/milvus
-mkdir -p data/etcd
-mkdir -p data/minio
-mkdir -p logs
-mkdir -p gpu_services/embedding_service/logs
-mkdir -p gpu_services/knowledge_graph_service/logs
-mkdir -p cache/huggingface
-
-# Setup environment files
-print_status "Setting up environment files..."
-
-if [ ! -f "gpu_services/embedding_service/.env" ]; then
-    cp .env.dell.template gpu_services/embedding_service/.env
-    print_status "Created embedding service .env from template"
-fi
-
-if [ ! -f "gpu_services/knowledge_graph_service/.env" ]; then
-    cp .env.dell.template gpu_services/knowledge_graph_service/.env
-    print_status "Created knowledge graph service .env from template"
-fi
-
-# Setup embedding service
-print_status "Setting up Embedding Service..."
-cd gpu_services/embedding_service
-
-if [ ! -d "venv" ]; then
-    python3 -m venv venv
-    print_status "Created virtual environment for embedding service"
-fi
-
-source venv/bin/activate
-pip install --upgrade pip
-
-print_status "Installing PyTorch with CUDA support..."
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
-
-print_status "Installing other embedding service requirements..."
-pip install -r requirements.txt
-
-cd ../..
-
-# Setup knowledge graph service
-print_status "Setting up Knowledge Graph Service..."
-cd gpu_services/knowledge_graph_service
-
-if [ ! -d "venv" ]; then
-    python3 -m venv venv
-    print_status "Created virtual environment for knowledge graph service"
-fi
-
-source venv/bin/activate
-pip install --upgrade pip
-pip install -r requirements.txt
-
-cd ../..
-
-# Setup Milvus v2.6.2 (exact official version)
-print_status "Setting up Milvus v2.6.2 vector database..."
-if [ ! -f "setup_milvus_v2.6.2.sh" ]; then
-    print_error "Milvus setup script not found. Please ensure setup_milvus_v2.6.2.sh is available."
-    exit 1
-fi
-
-chmod +x setup_milvus_v2.6.2.sh
-print_status "Running Milvus v2.6.2 setup script..."
-# Note: The Milvus script will be run separately as it needs Docker
-
-print_status "Milvus v2.6.2 setup script is ready to run."
-print_warning "After completing this setup, run: ./setup_milvus_v2.6.2.sh"
-
-# Create service startup script
-cat > start_services.sh << 'EOF'
-#!/bin/bash
-echo "Starting Dell Laptop Services..."
-
-# Function to run service in background
-run_service() {
-    local name=$1
-    local command=$2
-    local logfile=$3
-    local workdir=$4
-    
-    echo "Starting $name..."
-    if [ -n "$workdir" ]; then
-        cd "$workdir"
-    fi
-    $command > "$logfile" 2>&1 &
-    local pid=$!
-    echo "$name PID: $pid (log: $logfile)"
-    echo $pid > ".$name.pid"
-    if [ -n "$workdir" ]; then
-        cd - > /dev/null
-    fi
-}
-
-# Start Milvus v2.6.2 first
-echo "Starting Milvus v2.6.2 vector database..."
 if [ ! -d "milvus-v2.6.2" ]; then
-    print_error "Milvus v2.6.2 not found. Please run ./setup_milvus_v2.6.2.sh first"
+    print_error "Milvus v2.6.2 setup not found. Please run: ./setup_milvus_v2.6.2.sh first"
     exit 1
 fi
 
 cd milvus-v2.6.2
 docker compose up -d
-cd ..
 
-echo "Waiting for Milvus v2.6.2 to be ready..."
-sleep 45
-
-# Start embedding service
-cd gpu_services/embedding_service
-source venv/bin/activate
-run_service "embedding" "python main.py" "../../logs/embedding.log" "."
-cd ../..
-
-# Wait for embedding service to initialize
-sleep 15
-
-# Start knowledge graph service
-cd gpu_services/knowledge_graph_service
-source venv/bin/activate
-run_service "knowledge_graph" "python main.py" "../../logs/knowledge_graph.log" "."
-cd ../..
-
-echo ""
-echo "All Dell laptop services started!"
-echo ""
-echo "Service endpoints:"
-echo "- Embedding Service: http://localhost:8002"
-echo "- Knowledge Graph Service: http://localhost:8003"
-echo "- Milvus: localhost:19530"
-echo "- MinIO Console: http://localhost:9001"
-echo ""
-echo "Logs:"
-echo "- Embedding: logs/embedding.log"
-echo "- Knowledge Graph: logs/knowledge_graph.log"
-echo ""
-echo "Health checks:"
-echo "curl http://localhost:8002/health"
-echo "curl http://localhost:8003/health"
-echo ""
-echo "To stop services: ./stop_services.sh"
-EOF
-
-chmod +x start_services.sh
-
-# Create stop script
-cat > stop_services.sh << 'EOF'
-#!/bin/bash
-echo "Stopping Dell Laptop Services..."
-
-# Function to stop service by PID
-stop_service() {
-    local name=$1
-    local pidfile=".$name.pid"
-    
-    if [ -f "$pidfile" ]; then
-        local pid=$(cat "$pidfile")
-        if kill -0 $pid 2>/dev/null; then
-            echo "Stopping $name (PID: $pid)..."
-            kill $pid
-            rm "$pidfile"
-        else
-            echo "$name is not running"
-            rm "$pidfile"
-        fi
-    else
-        echo "No PID file for $name"
-    fi
-}
-
-stop_service "knowledge_graph"
-stop_service "embedding"
-
-# Stop Milvus v2.6.2 containers
-echo "Stopping Milvus v2.6.2 containers..."
-if [ -d "milvus-v2.6.2" ]; then
-    cd milvus-v2.6.2
-    docker compose down
-    cd ..
+if [ $? -eq 0 ]; then
+    print_success "Milvus v2.6.2 Docker services started ✓"
 else
-    # Fallback to stop by container names
-    docker stop milvus-standalone milvus-minio milvus-etcd 2>/dev/null || true
+    print_error "Failed to start Milvus v2.6.2"
+    exit 1
 fi
 
-echo "All services stopped."
-EOF
+cd ..
 
-chmod +x stop_services.sh
+# Wait for Milvus to be ready
+print_info "Waiting for Milvus v2.6.2 to initialize..."
+sleep 45
 
-print_status "Setup complete!"
-print_status ""
-print_status "Next steps:"
-print_status "1. Edit gpu_services/embedding_service/.env with your configuration"
-print_status "2. Edit gpu_services/knowledge_graph_service/.env with your configuration" 
-print_status "3. Update IP addresses to match your network setup"
-print_status "4. Run: ./start_services.sh"
-print_status ""
-print_status "For Docker deployment instead:"
-print_status "docker-compose -f docker-compose.dell.yml up -d"
-print_status ""
-print_warning "Make sure the remote LLM service (Lenovo) is running first!"
-print_warning "Also ensure Neo4j (Mac Mini) is accessible from this machine!"
+if ! check_service "Milvus v2.6.2" "http://localhost:9091/healthz"; then
+    print_error "Milvus v2.6.2 failed to start. Check Docker logs:"
+    cd milvus-v2.6.2
+    docker compose logs milvus-standalone
+    cd ..
+    exit 1
+fi
+
+# Step 2: Setup and Start Embedding Service (Local)
+print_info "Step 2: Setting up Embedding Service (Local)..."
+
+cd gpu_services/embedding_service
+
+# Create virtual environment if it doesn't exist
+if [ ! -d "venv" ]; then
+    print_info "Creating virtual environment for Embedding Service..."
+    python3 -m venv venv
+    source venv/bin/activate
+    pip install --upgrade pip
+    
+    print_info "Installing PyTorch with CUDA support..."
+    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+    
+    print_info "Installing other requirements..."
+    pip install -r requirements.txt
+    
+    print_success "Embedding Service environment created ✓"
+else
+    source venv/bin/activate
+fi
+
+# Check if .env exists
+if [ ! -f ".env" ]; then
+    cp ../../.env.dell.template .env
+    print_warning "Created .env file. Please edit with your Neo4j Desktop password."
+    print_error "REQUIRED: Update NEO4J_PASSWORD in .env"
+    exit 1
+fi
+
+# Start embedding service in background
+print_info "Starting Embedding Service (Local)..."
+python main.py > ../../logs/embedding.log 2>&1 &
+EMBEDDING_PID=$!
+echo $EMBEDDING_PID > ../../.embedding.pid
+print_info "Embedding Service started (PID: $EMBEDDING_PID)"
+
+cd ../..
+
+# Wait for embedding service to be ready
+sleep 30
+if ! check_service "Embedding Service" "http://localhost:8002/health"; then
+    print_error "Embedding Service failed to start. Check logs/embedding.log"
+    exit 1
+fi
+
+# Step 3: Setup and Start Knowledge Graph Service (Local)
+print_info "Step 3: Setting up Knowledge Graph Service (Local)..."
+
+cd gpu_services/knowledge_graph_service
+
+# Create virtual environment if it doesn't exist
+if [ ! -d "venv" ]; then
+    print_info "Creating virtual environment for Knowledge Graph Service..."
+    python3 -m venv venv
+    source venv/bin/activate
+    pip install --upgrade pip
+    pip install -r requirements.txt
+    print_success "Knowledge Graph Service environment created ✓"
+else
+    source venv/bin/activate
+fi
+
+# Check if .env exists
+if [ ! -f ".env" ]; then
+    cp ../../.env.dell.template .env
+    print_warning "Created .env file. Please edit with your Neo4j Desktop password."
+    print_error "REQUIRED: Update NEO4J_PASSWORD in .env"
+    exit 1
+fi
+
+# Start knowledge graph service in background
+print_info "Starting Knowledge Graph Service (Local)..."
+python main.py > ../../logs/knowledge_graph.log 2>&1 &
+KNOWLEDGE_GRAPH_PID=$!
+echo $KNOWLEDGE_GRAPH_PID > ../../.knowledge_graph.pid
+print_info "Knowledge Graph Service started (PID: $KNOWLEDGE_GRAPH_PID)"
+
+cd ../..
+
+# Wait for knowledge graph service to be ready
+sleep 15
+if ! check_service "Knowledge Graph Service" "http://localhost:8003/health"; then
+    print_error "Knowledge Graph Service failed to start. Check logs/knowledge_graph.log"
+    exit 1
+fi
+
+echo ""
+print_success "=== Dell Laptop Services Started Successfully ==="
+echo ""
+echo "Service Status:"
+echo "✅ Milvus v2.6.2 (Docker): http://localhost:19530"
+echo "✅ Milvus WebUI: http://127.0.0.1:9091/webui/"
+echo "✅ MinIO Console: http://localhost:9090 (minioadmin/minioadmin)"
+echo "✅ Embedding Service (Local): http://localhost:8002"
+echo "✅ Knowledge Graph Service (Local): http://localhost:8003"
+echo ""
+echo "Health Checks:"
+echo "curl http://localhost:8002/health"
+echo "curl http://localhost:8003/health"
+echo "curl http://localhost:9091/healthz"
+echo ""
+echo "Logs:"
+echo "- Embedding Service: logs/embedding.log"
+echo "- Knowledge Graph Service: logs/knowledge_graph.log"
+echo "- Milvus Docker: cd milvus-v2.6.2 && docker compose logs -f"
+echo ""
+print_info "To stop services, run: ./stop_dell_services.sh"
+print_warning "Ensure Lenovo LLM service (8001) and Mac Neo4j (7687) are accessible!"

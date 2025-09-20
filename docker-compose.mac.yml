@@ -1,8 +1,8 @@
 version: '3.8'
 
-# Docker Compose for Mac Mini (16GB RAM)
-# Services: MongoDB, Orchestrator API, Docling Service
-# Note: Neo4j runs separately via Neo4j Desktop
+# Docker Compose for Mac Mini - Mixed Deployment
+# Docker: Orchestrator API + MongoDB
+# Local: Docling Service + Neo4j Desktop
 
 services:
   # MongoDB for storing user and chat data
@@ -23,27 +23,7 @@ services:
       timeout: 10s
       retries: 3
 
-  # Docling service for document processing (MLX optimized for Apple Silicon)
-  docling_service:
-    build:
-      context: ./gpu_services/docling_service
-      dockerfile: Dockerfile.mac
-    container_name: docling_service
-    ports:
-      - "8004:8004"
-    volumes:
-      - ./data:/app/data
-      - docling_models:/root/.cache/huggingface
-    environment:
-      - ASSEMBLYAI_API_KEY=${ASSEMBLYAI_API_KEY}
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8004/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-
-  # The main orchestrator API
+  # The main orchestrator API (connects to local docling service)
   orchestrator_api:
     build:
       context: ./orchestrator_api
@@ -55,9 +35,13 @@ services:
       - ./data:/app/data
     env_file:
       - ./orchestrator_api/.env
+    environment:
+      # Override to connect to local docling service on host
+      - DOCLING_SERVICE_URL=http://host.docker.internal:8004
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       - mongodb
-      - docling_service
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -67,9 +51,7 @@ services:
 
 volumes:
   mongo_data:
-  docling_models:
 
 networks:
   default:
     name: document_library_network
-    external: false
