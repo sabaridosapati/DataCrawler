@@ -1,33 +1,64 @@
-# Use the official NVIDIA CUDA runtime image as a base
-FROM nvidia/cuda:12.1.1-runtime-ubuntu22.04
+# gpu_services/embedding_service/Dockerfile.gpu
 
-# Set environment variables to prevent interactive prompts during installation
-ENV DEBIAN_FRONTEND=noninteractive
+FROM nvidia/cuda:12.1-devel-ubuntu22.04
+
+# Set environment variables
 ENV PYTHONUNBUFFERED=1
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONDONTWRITEBYTECODE=1
 
-# Install Python, pip, and other essential system dependencies
+# Set CUDA environment variables for RTX 4050 optimization
+ENV CUDA_VISIBLE_DEVICES=0
+ENV TORCH_CUDA_ARCH_LIST="8.6"
+ENV PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:256
+
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
     python3.10 \
+    python3.10-dev \
     python3-pip \
     git \
+    wget \
+    curl \
+    build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# Set the working directory inside the container
+# Set python3.10 as default python
+RUN ln -sf /usr/bin/python3.10 /usr/bin/python
+
+# Upgrade pip
+RUN python -m pip install --upgrade pip
+
+# Set working directory
 WORKDIR /app
 
-# Copy the requirements file first to leverage Docker layer caching
+# Copy requirements first for better caching
 COPY requirements.txt .
 
-# --- ROBUST INSTALLATION PROCESS ---
-# Install all requirements from the file WITH A LONG TIMEOUT.
-# This is the key fix for potential download timeouts.
-RUN pip install --no-cache-dir --timeout=900 -r requirements.txt
+# Install PyTorch with CUDA support first (optimized for RTX 4050)
+RUN pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
 
-# Copy the rest of the application code into the container
+# Install other Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application code
 COPY . .
 
-# Expose the port the application will run on
+# Create necessary directories
+RUN mkdir -p /app/logs
+RUN mkdir -p /app/cache/huggingface
+RUN mkdir -p /root/.cache/huggingface
+
+# Set Hugging Face cache directory
+ENV TRANSFORMERS_CACHE=/app/cache/huggingface
+ENV HF_HOME=/app/cache/huggingface
+
+# Expose port
 EXPOSE 8002
 
-# Define the command to run the application
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8002"]
+# Health check optimized for embedding service
+HEALTHCHECK --interval=60s --timeout=30s --start-period=120s --retries=3 \
+    CMD curl -f http://localhost:8002/health || exit 1
+
+# Run the application with optimizations for RTX 4050
+CMD ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8002", "--workers", "1"]

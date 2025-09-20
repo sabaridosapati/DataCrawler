@@ -1,8 +1,41 @@
+# gpu_services/embedding_service/requirements.txt
+
+# FastAPI and web server
 fastapi
 uvicorn[standard]
 pydantic
 pydantic-settings
-sentence-transformers
+
+# Core ML libraries optimized for RTX 4050
 torch
 transformers
+sentence-transformers
+tokenizers
+
+# GPU optimization
 accelerate
+optimum
+
+# Numerical computing
+numpy
+scipy
+
+# Text processing for docling integration
+regex
+
+# Utilities
+requests
+tqdm
+
+# Environment management
+python-dotenv
+
+# Optional: Memory optimization for smaller GPUs
+# bitsandbytes  # Uncomment if you need quantization
+
+# Logging and monitoring
+loguru
+
+# Development and testing
+pytest
+httpx

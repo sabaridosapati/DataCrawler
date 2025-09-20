@@ -1,28 +1,42 @@
-# Use an official, lightweight Python runtime as a parent image
+# gpu_services/docling_service/Dockerfile.mac
+
 FROM python:3.11-slim
 
-# Set environment variables to improve Python's behavior in Docker
-ENV PYTHONDONTWRITEBYTECODE 1
-ENV PYTHONUNBUFFERED 1
+# Set environment variables
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
 
-# Set the working directory inside the container
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    curl \
+    git \
+    poppler-utils \
+    tesseract-ocr \
+    tesseract-ocr-eng \
+    libreoffice \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set working directory
 WORKDIR /app
 
-# Copy the requirements file first. This is a Docker best practice
-# that leverages layer caching. The dependencies will only be re-installed
-# if the requirements.txt file changes.
+# Copy requirements and install Python dependencies
 COPY requirements.txt .
-
-# Install the Python dependencies specified in requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the rest of the application's code (everything in the 'app' sub-directory)
-# into the container's 'app' directory.
-COPY ./app /app/app
+# Copy application code
+COPY . .
 
-# Expose the port that the FastAPI application will run on
-EXPOSE 8000
+# Create necessary directories
+RUN mkdir -p /app/data/user_files
+RUN mkdir -p /app/logs
 
-# The command to run the application when the container starts.
-# It uses uvicorn to serve the FastAPI app located in app/main.py.
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Expose port
+EXPOSE 8004
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=30s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:8004/health || exit 1
+
+# Run the application
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8004"]

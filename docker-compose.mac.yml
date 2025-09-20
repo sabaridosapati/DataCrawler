@@ -1,3 +1,9 @@
+version: '3.8'
+
+# Docker Compose for Mac Mini (16GB RAM)
+# Services: MongoDB, Orchestrator API, Docling Service
+# Note: Neo4j runs separately via Neo4j Desktop
+
 services:
   # MongoDB for storing user and chat data
   mongodb:
@@ -7,26 +13,41 @@ services:
       - "27017:27017"
     volumes:
       - mongo_data:/data/db
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=admin
+      - MONGO_INITDB_ROOT_PASSWORD=password123
+    restart: unless-stopped
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
-  # Docling service running on Apple Silicon using MLX
+  # Docling service for document processing (MLX optimized for Apple Silicon)
   docling_service:
     build:
       context: ./gpu_services/docling_service
-      # Use the Mac-specific Dockerfile
       dockerfile: Dockerfile.mac
     container_name: docling_service
     ports:
       - "8004:8004"
-    env_file:
-      - ./gpu_services/docling_service/.env
     volumes:
-      # It needs access to the same data folder as the orchestrator
       - ./data:/app/data
-      - docling_cache:/root/.cache/docling
+      - docling_models:/root/.cache/huggingface
+    environment:
+      - ASSEMBLYAI_API_KEY=${ASSEMBLYAI_API_KEY}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8004/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   # The main orchestrator API
   orchestrator_api:
-    build: ./orchestrator_api
+    build:
+      context: ./orchestrator_api
+      dockerfile: Dockerfile
     container_name: orchestrator_api
     ports:
       - "8000:8000"
@@ -37,7 +58,18 @@ services:
     depends_on:
       - mongodb
       - docling_service
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
 volumes:
   mongo_data:
-  docling_cache:
+  docling_models:
+
+networks:
+  default:
+    name: document_library_network
+    external: false

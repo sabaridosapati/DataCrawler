@@ -1,3 +1,35 @@
-vllm
-timm
+# gpu_services/llm_service/requirements.txt
+
+# FastAPI and web server
+fastapi
+uvicorn[standard]
+pydantic
+pydantic-settings
+
+# Core ML libraries
+torch
+transformers
+accelerate
+tokenizers
+
+# Vision capabilities
 Pillow
+torchvision
+
+# Model optimization
+optimum
+bitsandbytes
+
+# Additional utilities
+numpy
+requests
+tqdm
+
+# Logging and monitoring
+loguru
+
+# Optional: For flash attention (if available)
+flash-attn
+
+# Environment management
+python-dotenv

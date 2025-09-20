@@ -3,6 +3,9 @@ uvicorn[standard]
 pydantic
 pydantic-settings
 
+# Pin numpy to a version compatible with all libraries
+numpy==1.26.4
+
 # Core processing libraries for MLX
 docling[vlm,mlx]
 torch

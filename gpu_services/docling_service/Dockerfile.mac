@@ -1,5 +1,6 @@
-# Use a standard Python base image suitable for Mac (arm64 architecture)
-FROM python:3.10-slim
+# --- THIS IS THE CRITICAL FIX ---
+# Use a Python 3.12 base image, which is required by the mlx library.
+FROM python:3.12-slim
 
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive
@@ -15,6 +16,7 @@ WORKDIR /app
 COPY requirements.txt .
 
 # Install the requirements with a long timeout to prevent network issues
+# This will now be much faster because of our new requirements.txt file
 RUN pip install --no-cache-dir --timeout=900 -r requirements.txt
 
 # Copy the rest of the application code into the container
