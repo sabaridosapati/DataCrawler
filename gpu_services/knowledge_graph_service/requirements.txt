@@ -10,3 +10,9 @@ graphiti-core
 # Neo4j driver is still required for the library to connect
 neo4j
 httpx
+
+vllm
+
+# Add these two lines for multimodal support
+timm
+Pillow

@@ -5,7 +5,7 @@ version: '3.8'
 services:
   # Milvus Standalone for vector storage
   milvus:
-    image: milvusdb/milvus:v2.4.4
+    image: milvusdb/milvus:v2.5.18-gpu
     container_name: milvus_service
     ports:
       - "19530:19530"
