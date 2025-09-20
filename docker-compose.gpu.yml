@@ -5,8 +5,7 @@ version: '3.8'
 services:
   # Milvus Standalone for vector storage
   milvus:
-    # --- THIS IS THE ONLY LINE THAT HAS CHANGED ---
-    image: milvusdb/milvus:v2.6.0
+    image: milvusdb/milvus:v2.4.4
     container_name: milvus_service
     ports:
       - "19530:19530"
@@ -42,27 +41,6 @@ services:
       --trust-remote-code
       --gpu-memory-utilization 0.90
 
-  # GPU-powered service for document extraction
-  docling_service:
-    build:
-      context: ./gpu_services/docling_service
-      dockerfile: Dockerfile.gpu
-    container_name: docling_service
-    ports:
-      - "8004:8004"
-    env_file:
-      - ./gpu_services/docling_service/.env
-    volumes:
-      - ./data:/app/data
-      - docling_cache:/root/.cache/docling
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-
   # Dedicated GPU-powered service for generating embeddings
   embedding_service:
     build:
@@ -97,5 +75,4 @@ services:
 
 volumes:
   milvus_data:
-  docling_cache:
   hf_cache:

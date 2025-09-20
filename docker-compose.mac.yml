@@ -1,4 +1,30 @@
 services:
+  # MongoDB for storing user and chat data
+  mongodb:
+    image: mongo:latest
+    container_name: mongo_db
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+  # Docling service running on Apple Silicon using MLX
+  docling_service:
+    build:
+      context: ./gpu_services/docling_service
+      # Use the Mac-specific Dockerfile
+      dockerfile: Dockerfile.mac
+    container_name: docling_service
+    ports:
+      - "8004:8004"
+    env_file:
+      - ./gpu_services/docling_service/.env
+    volumes:
+      # It needs access to the same data folder as the orchestrator
+      - ./data:/app/data
+      - docling_cache:/root/.cache/docling
+
+  # The main orchestrator API
   orchestrator_api:
     build: ./orchestrator_api
     container_name: orchestrator_api
@@ -8,3 +34,10 @@ services:
       - ./data:/app/data
     env_file:
       - ./orchestrator_api/.env
+    depends_on:
+      - mongodb
+      - docling_service
+
+volumes:
+  mongo_data:
+  docling_cache:

@@ -2,15 +2,14 @@ fastapi
 uvicorn[standard]
 pydantic
 pydantic-settings
-python-dotenv
 
-# Core processing libraries
-docling[vlm]
+# Core processing libraries for MLX
+docling[vlm,mlx]
+torch
 transformers
 sentence-transformers
-torch --index-url https://download.pytorch.org/whl/cu121
-accelerate
-bitsandbytes
+mlx
+mlx-vlm
 
-# Audio processing via AssemblyAI
+# Audio processing
 assemblyai
