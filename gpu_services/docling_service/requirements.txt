@@ -1,18 +1,40 @@
+# gpu_services/docling_service/requirements.txt
+
+# FastAPI and web server
 fastapi
 uvicorn[standard]
 pydantic
 pydantic-settings
 
-# Pin numpy to a version compatible with all libraries
-numpy==1.26.4
-
-# Core processing libraries for MLX
+# Core MLX and docling dependencies for granite-docling-258M-mlx
 docling[vlm,mlx]
-torch
-transformers
-sentence-transformers
 mlx
-mlx-vlm
+mlx-vlm>=0.3.3
+docling-core
 
-# Audio processing
+# Transformers and tokenizers
+transformers
+tokenizers
+sentence-transformers
+
+# Image processing
+Pillow
+torchvision
+
+# Audio processing (optional - AssemblyAI)
 assemblyai
+
+# Utilities
+numpy
+requests
+tqdm
+
+# Environment management
+python-dotenv
+
+# Logging
+loguru
+
+# Development and testing
+pytest
+httpx
