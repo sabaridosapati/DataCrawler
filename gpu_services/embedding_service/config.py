@@ -1,63 +1,62 @@
 # gpu_services/embedding_service/config.py
 
-import torch
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+
 class Settings(BaseSettings):
-    """Configuration for Enhanced Embedding Service optimized for RTX 4050 (6GB VRAM)"""
+    """Configuration for Gemini Embedding Service using cloud API"""
     
-    # Model configuration
-    MODEL_NAME: str = "google/embeddinggemma-300m"
-    EMBEDDING_DIMENSION: int = 768
+    # Gemini API Configuration
+    GEMINI_API_KEY: str = ""
+    EMBEDDING_MODEL: str = "gemini-embedding-001"
     
-    # Hardware configuration optimized for RTX 4050
-    DEVICE: str = "cuda" if torch.cuda.is_available() else "cpu"
-    TORCH_DTYPE: torch.dtype = torch.bfloat16 if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else torch.float32
+    # Embedding Configuration
+    EMBEDDING_DIMENSION: int = 768  # gemini-embedding-001 output dimension
     
-    # Memory optimization for RTX 4050 (6GB VRAM)
-    BATCH_SIZE: int = 16 if torch.cuda.is_available() else 8
-    MAX_SEQ_LENGTH: int = 512
-    GPU_MEMORY_FRACTION: float = 0.85  # Conservative for RTX 4050
+    # Task types for better retrieval performance
+    # Options: RETRIEVAL_QUERY, RETRIEVAL_DOCUMENT, SEMANTIC_SIMILARITY, 
+    #          CLASSIFICATION, CLUSTERING, QUESTION_ANSWERING, FACT_VERIFICATION
+    DOCUMENT_TASK_TYPE: str = "RETRIEVAL_DOCUMENT"
+    QUERY_TASK_TYPE: str = "RETRIEVAL_QUERY"
+    
+    # Batch processing settings
+    # Gemini API allows up to 100 texts per batch
+    MAX_BATCH_SIZE: int = 100
+    OPTIMAL_BATCH_SIZE: int = 50  # Balance between throughput and latency
+    
+    # Rate limiting
+    MAX_CONCURRENT_REQUESTS: int = 5
+    REQUEST_TIMEOUT_SECONDS: float = 120.0
+    
+    # Retry Configuration
+    MAX_RETRIES: int = 3
+    RETRY_DELAY_SECONDS: float = 1.0
+    RETRY_BACKOFF_MULTIPLIER: float = 2.0
     
     # Service configuration
     HOST: str = "0.0.0.0"
     PORT: int = 8002
     
-    # Processing optimization
-    NORMALIZE_EMBEDDINGS: bool = True
-    SHOW_PROGRESS: bool = True
-    TRUST_REMOTE_CODE: bool = True
-    
-    # Text cleaning configuration
-    MIN_TEXT_LENGTH: int = 10
-    MAX_TEXT_LENGTH: int = 8192
+    # Text preprocessing
+    MIN_TEXT_LENGTH: int = 3
+    MAX_TEXT_LENGTH: int = 2048  # Truncate longer texts
     CLEAN_DOCLING_ARTIFACTS: bool = True
-    
-    # Hugging Face configuration
-    HF_TOKEN: str = ""
-    TRANSFORMERS_CACHE: str = "./cache/huggingface"
     
     # Logging
     LOG_LEVEL: str = "INFO"
-    LOG_FORMAT: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     
     model_config = SettingsConfigDict(env_file=".env", extra='ignore')
 
+
 settings = Settings()
 
-# Log current configuration on import
+# Log configuration on import
 if __name__ == "__main__":
-    print("=== Enhanced Embedding Service Configuration ===")
-    print(f"Model: {settings.MODEL_NAME}")
+    print("=== Gemini Embedding Service Configuration ===")
+    print(f"Model: {settings.EMBEDDING_MODEL}")
     print(f"Embedding Dimension: {settings.EMBEDDING_DIMENSION}")
-    print(f"Device: {settings.DEVICE}")
-    print(f"Torch dtype: {settings.TORCH_DTYPE}")
-    print(f"Batch size: {settings.BATCH_SIZE}")
-    print(f"GPU memory fraction: {settings.GPU_MEMORY_FRACTION}")
-    
-    if torch.cuda.is_available():
-        print(f"GPU: {torch.cuda.get_device_name(0)}")
-        print(f"GPU Memory: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f}GB")
-        print(f"CUDA Version: {torch.version.cuda}")
-    else:
-        print("GPU: Not available - using CPU")
+    print(f"Document Task Type: {settings.DOCUMENT_TASK_TYPE}")
+    print(f"Query Task Type: {settings.QUERY_TASK_TYPE}")
+    print(f"Max Batch Size: {settings.MAX_BATCH_SIZE}")
+    print(f"Max Concurrent Requests: {settings.MAX_CONCURRENT_REQUESTS}")
+    print(f"API Key configured: {'Yes' if settings.GEMINI_API_KEY else 'No'}")

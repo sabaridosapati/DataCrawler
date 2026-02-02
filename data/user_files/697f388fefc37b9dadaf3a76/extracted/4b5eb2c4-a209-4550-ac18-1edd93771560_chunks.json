@@ -1,0 +1,317 @@
+[
+  {
+    "index": 0,
+    "text": "Complete architecture documentation for the Data-Insighter AI-powered data analysis platform.",
+    "metadata": {
+      "chunk_index": 0
+    }
+  },
+  {
+    "index": 1,
+    "text": "1. \n2. \n3. \n4. \n5. \n6. \n7. \n8. \n9.",
+    "metadata": {
+      "chunk_index": 1
+    }
+  },
+  {
+    "index": 2,
+    "text": "**Data-Insighter**\nis an AI-powered data analysis platform that converts natural language queries into executable Python/SQL code for analyzing CSV/tabular data. It uses a sophisticated multi-agent LangGraph workflow with a 4-layer verification pipeline to ensure analytical accuracy on\n**entire datasets**\n(not samples).",
+    "metadata": {
+      "chunk_index": 2
+    }
+  },
+  {
+    "index": 3,
+    "text": "Market research survey data analysis requiring accurate analytics on the full dataset.",
+    "metadata": {
+      "chunk_index": 3
+    }
+  },
+  {
+    "index": 4,
+    "text": "Frontend, Technology = Streamlit (Python). Backend, Technology = FastAPI (Python 3.10+). Workflow, Technology = LangGraph. AI Engine, Technology = Google Gemini (flash, pro, lite). User Data, Technology = PostgreSQL. Analytics, Technology = DuckDB (in-process)",
+    "metadata": {
+      "chunk_index": 4
+    }
+  },
+  {
+    "index": 5,
+    "text": "```\nflowchart TB\n subgraph Frontend[\"Frontend Layer\"]\n UI[Streamlit UIapp.py]\n end\n\n subgraph Backend[\"Backend Layer\"]\n API[FastAPI Backendapi/main.py]\n\n subgraph Routers[\"API Routers\"]\n AUTH[auth.py]\n ANALYSIS[analysis.py]\n DATASETS[datasets.py]\n CHAT[chat.py]\n end\n\n subgraph Services[\"Services\"]\n SVC[analysis_service.py]\n end\n\n subgraph Graph[\"LangGraph Workflow\"]\n GEN[generator.py33 Nodes]\n EXEC[executor.py3 Execution Modes]\n NODES[nodes/36 Processing Nodes]\n end\n end\n\n subgraph External[\"External Services\"]\n GEMINI[Google GeminiLLM API]\n end\n\n subgraph DataLayer[\"Data Layer\"]\n PG[(PostgreSQLUsers, Sessions, Chats)]\n DUCK[(DuckDBAnalytics Engine)]\n FILES[(CSV/ParquetData Files)]\n end\n\n UI -->|HTTP| API\n API --> AUTH & ANALYSIS & DATASETS & CHAT\n ANALYSIS --> SVC\n SVC --> GEN\n GEN --> EXEC\n EXEC --> NODES\n NODES -->|LLM Calls| GEMINI\n NODES -->|User Data| PG\n NODES -->|Analytics| DUCK\n DUCK -->|Query| FILES\n```",
+    "metadata": {
+      "chunk_index": 5
+    }
+  },
+  {
+    "index": 6,
+    "text": "Streamlit UI, Purpose = User interface for file uploads, natural language queries, and result visualization. FastAPI Backend, Purpose = REST API handling authentication, dataset management, and analysis orchestration. LangGraph Workflow, Purpose = Multi-agent orchestration with conditional routing and state management. PostgreSQL, Purpose = Transactional data: users, sessions, chats, dataset metadata, query logs. DuckDB, Purpose = High-performance analytics engine for full-dataset SQL queries. Google Gemini, Purpose = LLM for natural language understanding, code generation, and validation",
+    "metadata": {
+      "chunk_index": 6
+    }
+  },
+  {
+    "index": 7,
+    "text": "Traditional data analysis approaches load entire datasets into pandas memory, which creates several issues:\n1. **Memory Limits** : Large datasets (>1GB) can exhaust system memory\n2. **Performance** : pandas operations on large datasets are slow\n3. **Sampling Bias** : Sampling data for LLM context can lead to inaccurate analysis\n4. **Scalability** : Cannot handle production-scale data volumes",
+    "metadata": {
+      "chunk_index": 7
+    }
+  },
+  {
+    "index": 8,
+    "text": "Data-Insighter uses a\n**DuckDB-first architecture**\nwhere:\n```\nflowchart LR\n subgraph Traditional[\"Traditional Approach\"]\n CSV1[CSV File] -->|Load ALL| DF1[pandas DataFramein Memory]\n DF1 -->|Full Data| LLM1[LLM Context]\n DF1 -->|Process| RESULT1[Results]\n end\n\n subgraph DuckDB[\"DuckDB-First Approach\"]\n CSV2[CSV File] -->|10 rows only| SAMPLE[Sample forLLM Context]\n CSV2 -->|Direct Query| DUCK2[(DuckDBIn-Process)]\n SAMPLE -->|Schema + Examples| LLM2[LLM]\n LLM2 -->|Generate SQL| DUCK2\n DUCK2 -->|Query ALL rows| RESULT2[Results]\n end\n```",
+    "metadata": {
+      "chunk_index": 8
+    }
+  },
+  {
+    "index": 9,
+    "text": "```\ndata_loader_node.py\n```\n```\nsimple_query_handler_node.py\n```\n```\nPython_code_executer_node.py\n```\n```\nnumerical_claim_verifier_node.py\n```\n```\ndata_profiler_node.py\n```\nData Loading, File = . Data Loading, Purpose =",
+    "metadata": {
+      "chunk_index": 9
+    }
+  },
+  {
+    "index": 10,
+    "text": "No Memory Limits, Description = Queries run on-disk, not in-memory. 10-20x Faster, Description = Columnar storage + vectorized execution. Full Dataset, Description = All N rows analyzed, not samples. Thread Safe, Description = Ephemeral connections per query. Zero Config, Description = In-process, no external server",
+    "metadata": {
+      "chunk_index": 10
+    }
+  },
+  {
+    "index": 11,
+    "text": "```\nDUCKDB_MEMORY_LIMIT=8GB # Max memory per query\nDUCKDB_THREADS=8 # Parallel threads\n```",
+    "metadata": {
+      "chunk_index": 11
+    }
+  },
+  {
+    "index": 12,
+    "text": "```\nflowchart TB\n subgraph Input[\"User Input\"]\n USER[User Query:\"What is the average ageby region?\"]\n DATA[Dataset:customers.csv]\n end\n\n subgraph Phase1[\"Phase 1: Initialization\"]\n LOAD[load_dataDuckDB schema extraction]\n RELEVANCY[check_query_relevancyIs query related to data?]\n REWRITE[re_write_queryClarify ambiguous queries]\n CACHE[check_cacheSemantic similarity check]\n end\n\n subgraph Phase2[\"Phase 2: Routing\"]\n SIMPLE[check_simple_queryPattern detection]\n ROUTE[route_queryMulti-agent routing]\n end\n\n subgraph Phase3[\"Phase 3: Analysis\"]\n PARALLEL[parallel_agentsProfiler + Selector + Quality]\n DECOMPOSE[decompose_queryBreak into subtasks]\n CODEGEN[generate_python_codeDuckDB SQL + Python]\n EXECUTE[execute_python_codeSecure sandbox]\n end\n\n subgraph Phase4[\"Phase 4: Verification\"]\n VERIFY[numerical_verifierClaim verification]\n VALIDATE[validate_outputSemantic validation]\n CRITIQUE[self_critiqueHallucination detection]\n CONFIDENCE[calculate_confidenceFinal scoring]\n end\n\n subgraph Output[\"Output\"]\n REPORT[generate_reportMarkdown formatting]\n RESULT[Analysis Report+ Confidence Score]\n end",
+    "metadata": {
+      "chunk_index": 12
+    }
+  },
+  {
+    "index": 13,
+    "text": "USER & DATA --> LOAD\n LOAD -->|Success| RELEVANCY\n LOAD -->|Fail| ERROR1[Error Report]\n RELEVANCY -->|Relevant| REWRITE\n RELEVANCY -->|Irrelevant| ERROR2[Relevancy Report]\n REWRITE --> CACHE\n CACHE -->|Hit| VALIDATE\n CACHE -->|Miss| SIMPLE\n SIMPLE -->|Simple| EXEC_SIMPLE[Execute SQL]\n SIMPLE -->|Complex| ROUTE\n ROUTE -->|Conversational| CHATBOT[chatbot]\n ROUTE -->|Data Analysis| PARALLEL\n PARALLEL --> DECOMPOSE\n DECOMPOSE --> CODEGEN\n CODEGEN --> EXECUTE\n EXECUTE -->|Success| VERIFY\n EXECUTE -->|Fail| REGEN[Regenerate Code]\n REGEN --> CODEGEN\n VERIFY -->|Verified| VALIDATE\n VERIFY -->|Discrepancies| REGEN\n VALIDATE -->|Pass| REPORT\n VALIDATE -->|Fail| REGEN\n REPORT --> CRITIQUE\n CRITIQUE -->|Approved| CONFIDENCE\n CRITIQUE -->|Needs Revision| REVISE[Revise Report]\n REVISE --> CRITIQUE\n CONFIDENCE --> RESULT\n EXEC_SIMPLE --> RESULT\n CHATBOT --> RESULT\n```",
+    "metadata": {
+      "chunk_index": 13
+    }
+  },
+  {
+    "index": 14,
+    "text": "For complex queries, the system breaks them into subtasks:\n```\nflowchart TB\n QUERY[\"Complex Query:'Compare sales trends by regionand identify top products'\"]\n\n DECOMPOSE[decompose_query Node]\n\n subgraph SubTasks[\"Generated Subtasks\"]\n T1[\"Subtask 1:Calculate sales by region\"]\n T2[\"Subtask 2:Analyze temporal trends\"]\n T3[\"Subtask 3:Rank products by sales\"]\n T4[\"Subtask 4:Cross-tabulate results\"]\n end\n\n COMBINE[Combine Results]\n OUTPUT[Unified Report]\n\n QUERY --> DECOMPOSE\n DECOMPOSE --> T1 & T2 & T3 & T4\n T1 & T2 & T3 & T4 --> COMBINE\n COMBINE --> OUTPUT\n```",
+    "metadata": {
+      "chunk_index": 14
+    }
+  },
+  {
+    "index": 15,
+    "text": "The workflow is defined in\n```\napi/graph/generator.py\n```\nwith\n**33 nodes**\nand conditional routing edges.",
+    "metadata": {
+      "chunk_index": 15
+    }
+  },
+  {
+    "index": 16,
+    "text": "```\nflowchart TB\n START((START))\n\n subgraph Init[\"Initialization\"]\n load_data[\"load_data\"]\n check_query_relevancy[\"check_query_relevancy\"]\n re_write_query[\"re_write_query\"]\n check_cache[\"check_cache\"]\n end\n\n subgraph Routing[\"Routing Layer\"]\n check_simple_query[\"check_simple_query\"]\n execute_simple_query[\"execute_simple_query\"]\n route_query[\"route_query\"]\n chatbot[\"chatbot\"]\n end\n\n subgraph Parallel[\"Parallel Agents\"]\n parallel_agents[\"parallel_agents\"]\n data_profiler[\"data_profiler\"]\n column_selector[\"column_selector\"]\n data_quality[\"data_quality\"]\n end\n\n subgraph CodeGen[\"Code Generation\"]\n decompose_query[\"decompose_query\"]\n generate_python_code[\"generate_python_code\"]\n multi_task_code_generator[\"multi_task_code_generator\"]\n Python_code_sanitize[\"sanitize_code\"]\n execute_python_code[\"execute_python_code\"]\n re_generate_python_code[\"re_generate_python_code\"]\n end\n\n subgraph Verify[\"Verification Pipeline\"]\n numerical_verifier[\"numerical_verifier\"]\n validate_output[\"validate_output\"]\n validate_output_lite[\"validate_output_lite\"]\n save_to_cache[\"save_to_cache\"]\n end\n\n subgraph Report[\"Reporting\"]\n generate_report[\"generate_report\"]\n self_critique[\"self_critique\"]\n revise_report[\"revise_report\"]\n calculate_confidence[\"calculate_confidence\"]\n end\n\n subgraph Fallback[\"Error Handling\"]\n fallback_analysis[\"fallback_analysis\"]\n data_load_error[\"data_load_error_report\"]\n query_relevancy_report[\"query_relevancy_report\"]\n end\n\n END((END))",
+    "metadata": {
+      "chunk_index": 16
+    }
+  },
+  {
+    "index": 17,
+    "text": "START --> load_data\n load_data -->|Success| check_query_relevancy\n load_data -->|Fail| data_load_error --> END\n\n check_query_relevancy -->|Relevant| re_write_query\n check_query_relevancy -->|Irrelevant| query_relevancy_report --> END\n\n re_write_query --> check_cache\n check_cache -->|Hit| validate_output\n check_cache -->|Miss| check_simple_query\n\n check_simple_query -->|Simple| execute_simple_query\n check_simple_query -->|Complex| route_query\n execute_simple_query -->|Done| END\n execute_simple_query -->|Complex| route_query\n\n route_query -->|Conversational| chatbot\n route_query -->|Data Analysis| parallel_agents\n\n chatbot -->|Pure Chat| generate_report\n chatbot -->|Needs Code| parallel_agents\n\n parallel_agents --> data_profiler & column_selector & data_quality\n data_profiler & column_selector & data_quality --> decompose_query\n\n decompose_query -->|Single| generate_python_code\n decompose_query -->|Multi| multi_task_code_generator\n\n generate_python_code --> Python_code_sanitize\n multi_task_code_generator --> Python_code_sanitize\n\n Python_code_sanitize -->|Safe| execute_python_code\n Python_code_sanitize -->|Unsafe| re_generate_python_code\n\n execute_python_code -->|Success| numerical_verifier\n execute_python_code -->|Fail| re_generate_python_code\n re_generate_python_code --> generate_python_code\n\n numerical_verifier -->|Verified| validate_output\n numerical_verifier -->|Discrepancies| re_generate_python_code",
+    "metadata": {
+      "chunk_index": 17
+    }
+  },
+  {
+    "index": 18,
+    "text": "validate_output -->|Pass| save_to_cache\n validate_output -->|Fail| fallback_analysis\n validate_output_lite --> save_to_cache\n\n save_to_cache --> generate_report\n fallback_analysis --> generate_report\n\n generate_report --> self_critique\n\n self_critique -->|Approved| calculate_confidence\n self_critique -->|Needs Revision| revise_report\n self_critique -->|Rejected| re_generate_python_code\n\n revise_report --> self_critique\n\n calculate_confidence --> END\n```",
+    "metadata": {
+      "chunk_index": 18
+    }
+  },
+  {
+    "index": 19,
+    "text": "Initialization, Nodes = load_data, check_query_relevancy, re_write_query, check_cache. Initialization, Purpose = Data loading and query preprocessing. Routing, Nodes = check_simple_query, route_query, chatbot. Routing, Purpose = Query classification and routing. Parallel Agents, Nodes = parallel_agents, data_profiler, column_selector, data_quality. Parallel Agents, Purpose = Concurrent data analysis. Code Generation, Nodes = decompose_query, generate_python_code, sanitize, execute. Code Generation, Purpose = Code creation and execution. Verification, Nodes = numerical_verifier, validate_output, self_critique. Verification, Purpose = 4-layer accuracy verification. Reporting, Nodes = generate_report, revise_report, calculate_confidence. Reporting, Purpose = Output formatting and scoring. Error Handling, Nodes = fallback_analysis, error_report nodes. Error Handling, Purpose = Graceful degradation",
+    "metadata": {
+      "chunk_index": 19
+    }
+  },
+  {
+    "index": 20,
+    "text": "```\nflowchart LR\n subgraph Orchestrator[\"LangGraph Orchestrator\"]\n STATE[AgentStateShared Context]\n end\n\n subgraph Specialists[\"Specialist Agents\"]\n PROFILER[\"Data ProfilerStatistics & distributions\"]\n SELECTOR[\"Column SelectorRelevant column mapping\"]\n QUALITY[\"Data QualityMissing values, outliers\"]\n ROUTER[\"Query RouterAnalysis type classification\"]\n DECOMPOSER[\"Query DecomposerSubtask breakdown\"]\n CODEGEN[\"Code GeneratorDuckDB SQL + Python\"]\n VERIFIER[\"Numerical VerifierClaim verification\"]\n CRITIC[\"Self-CriticHallucination detection\"]\n end\n\n STATE  PROFILER & SELECTOR & QUALITY & ROUTER & DECOMPOSER & CODEGEN & VERIFIER & CRITIC\n```",
+    "metadata": {
+      "chunk_index": 20
+    }
+  },
+  {
+    "index": 21,
+    "text": "1. Data Profiler Agent (\n```\ndata_profiler_node.py\n```\n)\n**Purpose**\n: Comprehensive data structure analysis\n**Capabilities**\n:\n- Column type detection (numeric, categorical, datetime, text)\n- Statistical summaries (mean, median, std, min, max, quartiles)\n- Distribution analysis (normal, skewed, bimodal)\n- Cardinality analysis (unique values, distinct counts)\n- Missing value patterns\n- Outlier detection (IQR, z-score)\n- Correlation matrix for numeric columns\n**Output**\n:\n```\nunified_profile\n```\nin AgentState\n2. Column Selector Agent (\n```\ncolumn_selector_node.py\n```\n)\n**Purpose**\n: Map user query terms to relevant columns\n**Capabilities**\n:\n- Fuzzy matching for typos (\"revnue\" → \"revenue\")\n- Semantic column mapping (\"sales\" → \"total_amount\")\n- Primary vs secondary column classification\n- Domain-specific vocabulary handling\n**Output**\n:\n```\nselected_columns\n```\n,\n```\nprimary_columns\n```\nin AgentState\n3. Data Quality Agent (\n```\ndata_quality_node.py\n```\n)\n**Purpose**\n: Assess data quality and flag issues\n**Capabilities**\n:\n- Missing value analysis by column\n- Duplicate row detection\n- Type consistency checking\n- Outlier identification\n- Data completeness scoring\n- Quality recommendations\n**Output**\n:\n```\ndata_quality_score\n```\n,\n```\ndata_quality_issues\n```\nin AgentState\n4. Query Router Agent (\n```\nquery_router_node.py\n```\n)\n**Purpose**\n: Classify query type and select analysis approach\n**Analysis Types Detected**\n:",
+    "metadata": {
+      "chunk_index": 21
+    }
+  },
+  {
+    "index": 22,
+    "text": "STATISTICAL, Description = Aggregations, correlations. STATISTICAL, Example = \"What is the average age?\". VISUALIZATION, Description = Charts and plots. VISUALIZATION, Example = \"Show sales trend\". COMPARISON, Description = A/B tests, cohort analysis. COMPARISON, Example = \"Compare regions\". EXPLORATION, Description = Data overview. EXPLORATION, Example = \"Summarize the data\". SPECIFIC_LOOKUP, Description = Filter and find. SPECIFIC_LOOKUP, Example = \"Find customers over 50\". TREND_ANALYSIS, Description = Time series. TREND_ANALYSIS, Example = \"Sales growth over time\". CROSS_TABULATION, Description = Pivot tables. CROSS_TABULATION, Example = \"Sales by region and product\". PREDICTIVE, Description = Forecasting. PREDICTIVE, Example = \"Predict next quarter\". CONVERSATIONAL, Description = Greetings, help. CONVERSATIONAL, Example = \"Hello\"\n**Output**\n:\n```\nquery_type\n```\n,\n```\nanalysis_types\n```\n,\n```\nrequires_visualization\n```\nin AgentState\n5. Query Decomposer Agent (\n```\ndecompose_query_node.py\n```\n)\n**Purpose**\n: Break complex queries into executable subtasks\n**Capabilities**\n:\n- Multi-part query detection\n- Dependency ordering\n- Subtask prioritization\n- Result combination strategy\n**Output**\n:\n```\nsub_tasks\n```\n,\n```\ntotal_sub_tasks\n```\nin AgentState\n6. Code Generator Agent (\n```\nPython_code_generator_node.py\n```\n)\n**Purpose**\n: Generate DuckDB-first Python code\n**Key Principles**\n:\n- Uses DuckDB SQL for ALL aggregations\n- Queries run on ENTIRE dataset (not samples)\n- Plotly for visualizations\n- Follows secure execution patterns\n**Code Template**\n:",
+    "metadata": {
+      "chunk_index": 22
+    }
+  },
+  {
+    "index": 23,
+    "text": "```\n# Pre-injected: analytics, data_file, pd, np, px, go\n\n# Analytics via DuckDB (runs on ALL rows)\nresult = analytics.execute_sql_to_dict(data_file, \"\"\"\n SELECT region, AVG(age) as avg_age\n FROM data\n GROUP BY region\n\"\"\")\nprint(f\"Average age by region: {result}\")\n\n# Visualization\ndf = pd.DataFrame(result)\nfig = px.bar(df, x='region', y='avg_age')\nfig.write_html('visualizations/chart.html')\nprint(\"[INTERACTIVE_CHART:visualizations/chart.html]\")\n```\n**Output**\n:\n```\nPython_Code\n```\nin AgentState\n7. Numerical Verifier Agent (\n```\nnumerical_claim_verifier_node.py\n```\n)\n**Purpose**\n: Independently verify numerical claims\n**Process**\n:\n1. Extract claims via regex (\"average is 45.2\")\n2. Identify relevant columns\n3. Recalculate via DuckDB SQL\n4. Compare claimed vs actual (tolerance: 10%)\n5. Flag discrepancies\n**Sanity Checks**\n:\n- Percentages: 0-100\n- Correlations: -1 to 1\n- Counts: non-negative\n- P-values: 0-1\n**Output**\n:\n```\nnumerical_verification_status\n```\n,\n```\nnumerical_discrepancies\n```\nin AgentState\n8. Self-Critic Agent (\n```\nself_critique_node.py\n```\n)\n**Purpose**\n: Detect hallucinations and alignment issues\n**Verifications**\n:\n1. **Claim Verification** : All factual claims backed by data\n2. **Query Alignment** : Report answers the question asked\n3. **Scope Creep** : No unrequested analyses\n4. **Statistical Language** : Appropriate hedging and caveats\n**Verdicts**\n:\n- `APPROVED` : Ready for output\n- `NEEDS_REVISION` : Minor fixes needed (max 2 iterations)\n- `REJECTED` : Regenerate from scratch",
+    "metadata": {
+      "chunk_index": 23
+    }
+  },
+  {
+    "index": 24,
+    "text": "**Output**\n:\n```\ncritique_verdict\n```\n,\n```\nhallucination_count\n```\n,\n```\nclaims_verified\n```\nin AgentState",
+    "metadata": {
+      "chunk_index": 24
+    }
+  },
+  {
+    "index": 25,
+    "text": "```\nflowchart TB\n EXEC[Code ExecutionResults]\n\n subgraph Layer1[\"Layer 1: Numerical Verification\"]\n EXTRACT[Extract Claimsvia Regex]\n RECALC[Recalculatevia DuckDB SQL]\n COMPARE[Compare ValuesTolerance: 10%]\n end\n\n subgraph Layer2[\"Layer 2: Output Validation\"]\n SEMANTIC[LLM SemanticValidation]\n STRUCTURE[Structure &Format Check]\n COMPLETE[CompletenessAssessment]\n end\n\n subgraph Layer3[\"Layer 3: Report Generation\"]\n FORMAT[MarkdownFormatting]\n INSIGHTS[Key InsightsExtraction]\n RECOMMEND[RecommendationsGeneration]\n end\n\n subgraph Layer4[\"Layer 4: Self-Critique\"]\n HALLUCINATE[HallucinationDetection]\n ALIGN[QueryAlignment]\n SCOPE[Scope CreepDetection]\n end\n\n CONFIDENCE[ConfidenceScoring]\n OUTPUT[Final Report+ Score]\n\n EXEC --> Layer1\n Layer1 --> Layer2\n Layer2 --> Layer3\n Layer3 --> Layer4\n Layer4 --> CONFIDENCE\n CONFIDENCE --> OUTPUT\n\n EXTRACT --> RECALC --> COMPARE\n SEMANTIC --> STRUCTURE --> COMPLETE\n FORMAT --> INSIGHTS --> RECOMMEND\n HALLUCINATE --> ALIGN --> SCOPE\n```",
+    "metadata": {
+      "chunk_index": 25
+    }
+  },
+  {
+    "index": 26,
+    "text": "Layer 1, Purpose = Numerical accuracy. Layer 1, Method = Deterministic SQL recalculation. Layer 1, Failure Action = Regenerate code. Layer 2, Purpose = Output quality. Layer 2, Method = LLM semantic validation. Layer 2, Failure Action = Regenerate or fallback. Layer 3, Purpose = Report formatting. Layer 3, Method = Template-based generation. Layer 3, Failure Action = N/A (always succeeds). Layer 4, Purpose = Hallucination prevention. Layer 4, Method = LLM claim verification. Layer 4, Failure Action = Revise or regenerate",
+    "metadata": {
+      "chunk_index": 26
+    }
+  },
+  {
+    "index": 27,
+    "text": "The final confidence score (0.0-1.0) aggregates signals from all layers:\n```\nvery_high\n```\n```\nhigh\n```\n```\nmoderate\n```\n```\nlow\n```\n```\nvery_low\n```\n0.90-1.00, Level = . 0.90-1.00, Interpretation =",
+    "metadata": {
+      "chunk_index": 27
+    }
+  },
+  {
+    "index": 28,
+    "text": "- Descriptive statistics (mean, median, mode, std, variance)\n- Correlation analysis (Pearson, Spearman)\n- Regression analysis (linear, multiple)\n- Hypothesis testing (t-tests, chi-square, ANOVA)\n- Distribution analysis",
+    "metadata": {
+      "chunk_index": 28
+    }
+  },
+  {
+    "index": 29,
+    "text": "- Automatic data profiling\n- Missing value analysis\n- Outlier detection\n- Data quality assessment\n- Column type inference",
+    "metadata": {
+      "chunk_index": 29
+    }
+  },
+  {
+    "index": 30,
+    "text": "- Bar charts, line charts, scatter plots\n- Histograms, box plots, violin plots\n- Heatmaps, correlation matrices\n- Pie charts, treemaps\n- Interactive Plotly charts",
+    "metadata": {
+      "chunk_index": 30
+    }
+  },
+  {
+    "index": 31,
+    "text": "- Aggregations (\"What is the average...\")\n- Comparisons (\"Compare X vs Y\")\n- Trends (\"How has X changed over time\")\n- Rankings (\"Top 10 by...\")\n- Filters (\"Find all where...\")\n- Cross-tabulations (\"X by Y and Z\")\n- Distributions (\"Distribution of...\")",
+    "metadata": {
+      "chunk_index": 31
+    }
+  },
+  {
+    "index": 32,
+    "text": "- Ambiguous query clarification\n- Typo tolerance\n- Domain vocabulary mapping\n- Multi-part query decomposition\n- Conversational context",
+    "metadata": {
+      "chunk_index": 32
+    }
+  },
+  {
+    "index": 33,
+    "text": "Max dataset size, Value = Limited only by disk. Query timeout, Value = 30 seconds. Max retries, Value = 5 (configurable). Cache TTL, Value = 24 hours. Cache similarity threshold, Value = 0.75",
+    "metadata": {
+      "chunk_index": 33
+    }
+  },
+  {
+    "index": 34,
+    "text": "- JWT authentication with refresh tokens\n- Secure code sandbox (AST validation, restricted builtins)\n- Module allowlist (pandas, numpy, plotly only)\n- Per-user dataset isolation\n- No eval/exec/import allowed",
+    "metadata": {
+      "chunk_index": 34
+    }
+  },
+  {
+    "index": 35,
+    "text": "```\nData-Insighter/\n├── api/ # FastAPI Backend\n│ ├── core/ # Configuration & utilities\n│ │ ├── config.py # Pydantic settings\n│ │ ├── logging.py # Structured logging\n│ │ └── exceptions.py # Custom exceptions\n│ ├── database/ # Data layer\n│ │ ├── pg_connection.py # PostgreSQL pool\n│ │ ├── pg_repositories.py # Data access layer\n│ │ ├── duckdb_analytics.py # DuckDB engine\n│ │ └── models.py # ORM models\n│ ├── routers/ # HTTP Endpoints\n│ │ ├── auth.py # Authentication\n│ │ ├── analysis.py # Query execution\n│ │ ├── datasets.py # File management\n│ │ └── chat.py # Chat sessions\n│ ├── services/ # Business logic\n│ │ └── analysis_service.py # Graph executor wrapper\n│ └── main.py # FastAPI entry point\n├── api/graph/ # LangGraph Workflow\n│ ├── generator.py # Graph builder (33 nodes)\n│ ├── executor.py # Execution modes\n│ ├── nodes/ # 36 Processing nodes\n│ │ ├── agent_state.py # State definition\n│ │ ├── data_loader_node.py\n│ │ ├── query_router_node.py\n│ │ ├── Python_code_generator_node.py\n│ │ ├── numerical_claim_verifier_node.py\n│ │ ├── self_critique_node.py\n│ │ └── [30+ more nodes]\n│ ├── prompts/ # LLM prompts\n│ └── utils/ # 23 utilities\n│ ├── sandbox.py # Secure execution\n│ ├── semantic_cache.py # Query caching\n│ └── [20+ more utils]\n├── client/ # Python API client\n├── docs/ # Documentation\n├── app.py # Streamlit Frontend\n├── docker-compose.yml # PostgreSQL Docker\n└── requirements.txt # Dependencies\n```",
+    "metadata": {
+      "chunk_index": 35
+    }
+  },
+  {
+    "index": 36,
+    "text": "The\n```\nAgentState\n```\nTypedDict (defined in\n```\napi/graph/nodes/agent_state.py\n```\n) is the shared context passed between all nodes.",
+    "metadata": {
+      "chunk_index": 36
+    }
+  },
+  {
+    "index": 37,
+    "text": "```\n# Core Query\nquery: str # Original user question\nrephrased_query: str # Clarified query\ncsv_file_path: str # Path to data file\n\n# DuckDB Architecture\ndata_file_path: str # Path for DuckDB queries\nparquet_path: str # Converted Parquet path\nactual_row_count: int # TRUE row count (not sample)\ndata_schema: dict # {column: DuckDB_type}\nsample_rows_for_context: list # 10 rows for LLM\n\n# Routing\nquery_type: str # STATISTICAL, VISUALIZATION, etc.\nanalysis_types: list # Applicable analysis types\nrequires_visualization: bool\n\n# Verification\nnumerical_verification_status: str # VERIFIED, PARTIAL, DISCREPANCIES\nnumerical_claims_verified: int\nnumerical_discrepancies: list\nvalidation_status: str # PASS, NEEDS_IMPROVEMENT, FAIL\n\n# Self-Critique\ncritique_verdict: str # APPROVED, NEEDS_REVISION, REJECTED\nhallucination_count: int\nclaims_verified: int\n\n# Confidence\nanalysis_confidence_score: float # 0.0-1.0\nanalysis_confidence_level: str # very_high, high, moderate, low, very_low\n\n# Output\nreports: str # Final markdown report\nexecution_results: str # Raw execution output\n```",
+    "metadata": {
+      "chunk_index": 37
+    }
+  },
+  {
+    "index": 38,
+    "text": "The workflow can be executed in three modes via\n```\napi/graph/executor.py\n```\n:",
+    "metadata": {
+      "chunk_index": 38
+    }
+  },
+  {
+    "index": 39,
+    "text": "```\nreport = get_reports(\n user_query=\"What is the average age?\",\n csv_file_path=\"/path/to/data.csv\",\n column_description=\"Age: customer age in years\"\n)\n```",
+    "metadata": {
+      "chunk_index": 39
+    }
+  },
+  {
+    "index": 40,
+    "text": "```\nresult = await get_reports_with_feedback(...)\n# Returns ExecutionResult with detailed progress\n```",
+    "metadata": {
+      "chunk_index": 40
+    }
+  },
+  {
+    "index": 41,
+    "text": "```\nasync for event in get_reports_streaming(...):\n # StreamEvent with real-time progress\n # event_type: NODE_START, NODE_END, PROGRESS, COMPLETE\n```",
+    "metadata": {
+      "chunk_index": 41
+    }
+  },
+  {
+    "index": 42,
+    "text": "```\n# 1. Start PostgreSQL\ndocker-compose up -d postgres\n\n# 2. Start API (port 8000)\nuvicorn api.main:app --reload\n\n# 3. Start Streamlit UI (port 8501)\nstreamlit run app.py\n```",
+    "metadata": {
+      "chunk_index": 42
+    }
+  },
+  {
+    "index": 43,
+    "text": "```\n/api/v1/auth/login\n```\n```\n/api/v1/datasets/upload\n```\n```\n/api/v1/analysis/query\n```\n```\n/api/v1/analysis/query/stream\n```\n```\n/api/v1/chat/sessions\n```\n, Method = . , Purpose =",
+    "metadata": {
+      "chunk_index": 43
+    }
+  },
+  {
+    "index": 44,
+    "text": "```\nGOOGLE_API_KEY=xxx # Required\nGEMINI_MODEL=gemini-3-flash # LLM model\nPOSTGRES_PORT=5433 # PostgreSQL port\nDUCKDB_MEMORY_LIMIT=8GB # Analytics memory\nMAX_RETRIES=5 # Code regeneration limit\n```\n*Last updated: January 2026*",
+    "metadata": {
+      "chunk_index": 44
+    }
+  }
+]

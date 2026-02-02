@@ -1,318 +1,323 @@
 # gpu_services/docling_service/processing.py
 
+"""
+Document processing service using Docling.
+Updated for Docling 2.x API.
+"""
+
 import logging
 import json
+import gc
 from pathlib import Path
-from typing import Dict, Any, List
-import assemblyai as aai
-from transformers import AutoTokenizer
+from typing import Dict, Any, List, Optional
 
-# Import the new MLX-based granite docling components
-from docling_core.types.doc import DoclingDocument
-from docling_core.types.doc.document import (
-    PictureItem,
-    PictureDescriptionData,
-    PictureClassificationData,
-    PictureMoleculeData,
-)
-from docling_core.transforms.serializer.base import BaseDocSerializer, SerializationResult
-from docling_core.transforms.serializer.common import create_ser_result
-from docling_core.transforms.serializer.markdown import MarkdownPictureSerializer, MarkdownTableSerializer
-from docling_core.transforms.chunker.hierarchical_chunker import ChunkingDocSerializer, ChunkingSerializerProvider
+try:
+    import torch
+    TORCH_AVAILABLE = True
+except ImportError:
+    TORCH_AVAILABLE = False
 
-from docling.document_converter import DocumentConverter, PdfFormatOption
-from docling.pipeline.vlm_pipeline import VlmPipeline
-from docling.datamodel.pipeline_options import VlmPipelineOptions
-from docling.datamodel.vlm_model_specs import VlmModelSpecs
+try:
+    import assemblyai as aai
+    ASSEMBLYAI_AVAILABLE = True
+except ImportError:
+    ASSEMBLYAI_AVAILABLE = False
+
+from docling.document_converter import DocumentConverter
+from docling.datamodel.base_models import InputFormat
 from docling.chunking import HybridChunker
-from docling_core.transforms.chunker.tokenizer.huggingface import HuggingFaceTokenizer
 
 from config import settings
 
 logger = logging.getLogger(__name__)
 
-class EnhancedPictureSerializer(MarkdownPictureSerializer):
-    """Enhanced picture serializer that handles all types of image annotations"""
-    
-    def serialize(self, *, item: PictureItem, doc_serializer: BaseDocSerializer, doc: DoclingDocument, **kwargs: Any) -> SerializationResult:
-        text_parts: List[str] = []
-        
-        # Process all annotations from the granite-docling MLX model
-        for annotation in item.annotations:
-            if isinstance(annotation, PictureDescriptionData):
-                text_parts.append(f"Image Description: {annotation.text}")
-            elif isinstance(annotation, PictureClassificationData):
-                if annotation.predicted_classes:
-                    predicted_class = annotation.predicted_classes[0].class_name
-                    text_parts.append(f"Image Type: {predicted_class}")
-            elif isinstance(annotation, PictureMoleculeData):
-                text_parts.append(f"Chemical Structure (SMILES): {annotation.smi}")
-        
-        # If we have annotations, use them; otherwise fall back to parent behavior
-        if text_parts:
-            text_result = "\n".join(text_parts)
-            text_result = doc_serializer.post_process(text=text_result)
-            return create_ser_result(text=text_result, span_source=item)
-        else:
-            return super().serialize(item=item, doc_serializer=doc_serializer, doc=doc, **kwargs)
 
-class AdvancedSerializerProvider(ChunkingSerializerProvider):
-    """Advanced serializer provider with enhanced image and table handling"""
-    
-    def get_serializer(self, doc: DoclingDocument) -> ChunkingDocSerializer:
-        return ChunkingDocSerializer(
-            doc=doc,
-            table_serializer=MarkdownTableSerializer(),
-            picture_serializer=EnhancedPictureSerializer()
-        )
+def clear_gpu_memory():
+    """Clear GPU memory cache to prevent OOM errors"""
+    if TORCH_AVAILABLE and torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        gc.collect()
+        logger.debug("GPU memory cache cleared")
 
-class GraniteDoclingProcessor:
+
+class DoclingProcessor:
     """
-    Enhanced document processor using the granite-docling-258M-mlx model.
-    Optimized for Apple Silicon Mac with full document type support.
+    Document processor using Docling.
+    Handles PDF, DOCX, and other document formats.
     """
     
     def __init__(self):
-        logger.info("Initializing GraniteDoclingProcessor with granite-docling-258M-mlx for Apple Silicon")
+        logger.info(f"Initializing DoclingProcessor")
         
-        try:
-            # Configure VLM pipeline to use the Granite-Docling MLX model
-            # This model is specifically optimized for Apple Silicon
-            vlm_pipeline_options = VlmPipelineOptions(
-                vlm_options=VlmModelSpecs(
-                    model="granite_docling_mlx",  # Use the MLX version
-                    max_tokens=4096,
-                    temperature=0.0,
-                )
-            )
-            
-            # Initialize document converter with granite docling MLX model
-            self.converter = DocumentConverter(
-                format_options={
-                    "pdf": PdfFormatOption(
-                        pipeline_cls=VlmPipeline,
-                        pipeline_options=vlm_pipeline_options
-                    )
-                }
-            )
-            
-            # Initialize AssemblyAI for audio processing (optional)
-            if settings.ASSEMBLYAI_API_KEY:
-                aai.settings.api_key = settings.ASSEMBLYAI_API_KEY
-                self.transcriber = aai.Transcriber()
-                logger.info("AssemblyAI transcriber initialized")
-            else:
-                self.transcriber = None
-                logger.warning("AssemblyAI API key not provided - audio processing disabled")
-            
-            # Initialize advanced chunking with contextual serializers
-            tokenizer = HuggingFaceTokenizer(
-                tokenizer=AutoTokenizer.from_pretrained("sentence-transformers/all-MiniLM-L6-v2"),
-                max_tokens=512
-            )
-            
-            self.chunker = HybridChunker(
-                tokenizer=tokenizer,
-                merge_peers=True,  # Merge related chunks for better context
-                serializer_provider=AdvancedSerializerProvider()
-            )
-            
-            logger.info("GraniteDoclingProcessor initialized successfully with granite-docling-258M-mlx")
-            logger.info("Supported formats: PDF, DOCX, PPTX, HTML, MD, Images (PNG, JPG, JPEG, BMP), Audio (MP3, WAV, M4A, FLAC, OGG)")
-            
-        except Exception as e:
-            logger.critical(f"CRITICAL: Failed to initialize GraniteDoclingProcessor. Error: {e}", exc_info=True)
-            raise RuntimeError(f"Failed to initialize document processor: {e}")
+        # Check GPU availability
+        if TORCH_AVAILABLE and torch.cuda.is_available():
+            self.device = "cuda"
+            gpu_name = torch.cuda.get_device_name(0)
+            gpu_mem = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+            logger.info(f"GPU available: {gpu_name} ({gpu_mem:.1f} GB)")
+        else:
+            self.device = "cpu"
+            logger.info("Running on CPU")
+        
+        # Initialize converter with default settings
+        self.converter = DocumentConverter()
+        
+        # Initialize chunker
+        self.chunker = HybridChunker(
+            tokenizer="sentence-transformers/all-MiniLM-L6-v2",
+            max_tokens=settings.CHUNK_SIZE,
+            merge_peers=True
+        )
+        
+        logger.info("DoclingProcessor initialized successfully")
 
-    async def process_file(self, input_path: str, output_dir: str) -> Dict[str, str]:
+    def process_document(
+        self, 
+        input_file: str, 
+        output_dir: str
+    ) -> Dict[str, Any]:
         """
-        Process any supported file type and return paths to extracted content.
-        Handles documents, images, and audio files.
-        """
-        file_path = Path(input_path)
-        if not file_path.exists():
-            raise FileNotFoundError(f"Input file not found: {input_path}")
+        Process a document and extract content.
         
-        # Ensure output directory exists
+        Args:
+            input_file: Path to input document
+            output_dir: Directory for output files
+            
+        Returns:
+            Dict with paths to extracted content
+        """
+        input_path = Path(input_file)
         output_path = Path(output_dir)
         output_path.mkdir(parents=True, exist_ok=True)
         
-        file_extension = file_path.suffix.lower()
-        
-        # Define supported formats
-        document_formats = ['.pdf', '.docx', '.pptx', '.html', '.md', '.txt']
-        image_formats = ['.png', '.jpg', '.jpeg', '.bmp', '.tiff', '.webp']
-        audio_formats = ['.mp3', '.wav', '.m4a', '.flac', '.ogg', '.mp4']
-        
-        logger.info(f"Processing file: {input_path} (type: {file_extension})")
-        
-        if file_extension in document_formats or file_extension in image_formats:
-            return await self._process_document(file_path, output_path)
-        elif file_extension in audio_formats and self.transcriber:
-            return await self._process_audio(file_path, output_path)
-        else:
-            raise ValueError(f"Unsupported file type: {file_extension}")
-
-    async def _process_document(self, input_path: Path, output_dir: Path) -> Dict[str, str]:
-        """
-        Process documents and images using granite-docling-258M-mlx model.
-        Extracts text, tables, images, and maintains document structure.
-        """
-        logger.info(f"Processing document/image with Granite-Docling MLX: {input_path}")
+        logger.info(f"Processing document: {input_path.name}")
         
         try:
-            # Convert document using granite-docling MLX
-            conversion_result = self.converter.convert(source=str(input_path))
-            docling_document = conversion_result.document
+            # Clear GPU memory before processing
+            clear_gpu_memory()
             
-            logger.info(f"Successfully converted document: {input_path}")
-            logger.info(f"Document contains {len(docling_document.texts)} text elements")
-            logger.info(f"Document contains {len(docling_document.tables)} tables")
-            logger.info(f"Document contains {len(docling_document.pictures)} images")
+            # Convert document
+            result = self.converter.convert(str(input_path))
             
-            # Generate base filename for outputs
-            base_name = input_path.stem
+            # Get markdown content
+            markdown_content = result.document.export_to_markdown()
             
-            # 1. Save as markdown (preserves structure and formatting)
-            markdown_path = output_dir / f"{base_name}.md"
-            docling_document.save_as_markdown(markdown_path)
-            logger.info(f"Saved markdown to: {markdown_path}")
+            # Save markdown
+            markdown_file = output_path / f"{input_path.stem}.md"
+            markdown_file.write_text(markdown_content, encoding="utf-8")
+            logger.info(f"Saved markdown to: {markdown_file}")
             
-            # 2. Create contextual chunks for embedding
-            logger.info("Creating contextual chunks with advanced serialization...")
-            chunks_data = []
+            # Create chunks
+            chunks = self._create_chunks(result.document)
             
-            try:
-                docling_chunks = self.chunker.chunk(dl_doc=docling_document)
+            # Save chunks as JSON
+            chunks_file = output_path / f"{input_path.stem}_chunks.json"
+            with open(chunks_file, "w", encoding="utf-8") as f:
+                json.dump(chunks, f, ensure_ascii=False, indent=2)
+            logger.info(f"Saved {len(chunks)} chunks to: {chunks_file}")
+            
+            # Clear GPU memory after processing
+            clear_gpu_memory()
+            
+            return {
+                "success": True,
+                "extracted_markdown_path": str(markdown_file),
+                "extracted_chunks_path": str(chunks_file),
+                "num_chunks": len(chunks),
+                "document_name": input_path.name
+            }
+            
+        except Exception as e:
+            logger.error(f"Error processing document: {e}", exc_info=True)
+            clear_gpu_memory()
+            raise
+
+    def _create_chunks(self, document) -> List[Dict[str, Any]]:
+        """Create semantic chunks from document."""
+        chunks = []
+        
+        try:
+            chunk_iter = self.chunker.chunk(document)
+            for i, chunk in enumerate(chunk_iter):
+                chunk_text = chunk.text if hasattr(chunk, 'text') else str(chunk)
                 
-                for i, chunk in enumerate(docling_chunks):
-                    # Get contextualized text that preserves relationships
-                    contextual_text = self.chunker.contextualize(chunk=chunk)
-                    
-                    # Extract metadata from the chunk
-                    chunk_metadata = {
-                        "chunk_index": i,
-                        "source_file": str(input_path),
-                        "chunk_type": "contextual",
-                        "length": len(contextual_text),
-                    }
-                    
-                    # Add chunk metadata if available
-                    if hasattr(chunk, 'meta') and chunk.meta:
-                        chunk_metadata.update(chunk.meta.model_dump())
-                    
-                    chunks_data.append({
-                        "chunk_index": i,
-                        "text": contextual_text,
-                        "metadata": chunk_metadata
+                # Clean up the text
+                chunk_text = self._clean_text(chunk_text)
+                
+                if chunk_text.strip():
+                    chunks.append({
+                        "index": i,
+                        "text": chunk_text,
+                        "metadata": {
+                            "chunk_index": i
+                        }
                     })
-                
-                logger.info(f"Created {len(chunks_data)} contextual chunks")
-                
-            except Exception as chunk_error:
-                logger.warning(f"Advanced chunking failed, using basic chunking: {chunk_error}")
-                # Fallback to basic text extraction
-                full_text = docling_document.export_to_markdown()
-                chunks_data = [{
-                    "chunk_index": 0,
-                    "text": full_text,
-                    "metadata": {
-                        "source_file": str(input_path),
-                        "chunk_type": "full_document",
-                        "length": len(full_text)
-                    }
-                }]
-            
-            # 3. Save chunks as JSON
-            chunks_path = output_dir / f"{base_name}_chunks.json"
-            with open(chunks_path, 'w', encoding='utf-8') as f:
-                json.dump(chunks_data, f, indent=2, ensure_ascii=False)
-            
-            logger.info(f"Saved {len(chunks_data)} chunks to: {chunks_path}")
-            
-            return {
-                "markdown_path": str(markdown_path),
-                "chunks_path": str(chunks_path)
-            }
-            
         except Exception as e:
-            logger.error(f"Document processing failed for {input_path}: {e}", exc_info=True)
-            raise RuntimeError(f"Document processing failed: {e}")
+            logger.warning(f"Chunking failed, using fallback: {e}")
+            # Fallback: simple text splitting
+            markdown = document.export_to_markdown() if hasattr(document, 'export_to_markdown') else str(document)
+            chunks = self._simple_chunk(markdown)
+        
+        return chunks
 
-    async def _process_audio(self, input_path: Path, output_dir: Path) -> Dict[str, str]:
-        """
-        Process audio files using AssemblyAI transcription.
-        Fallback for audio content when document processing isn't applicable.
-        """
-        if not self.transcriber:
-            raise RuntimeError("Audio processing not available - AssemblyAI API key not configured")
+    def _simple_chunk(self, text: str, chunk_size: int = 500) -> List[Dict[str, Any]]:
+        """Simple fallback chunking by paragraphs."""
+        paragraphs = text.split('\n\n')
+        chunks = []
+        current_chunk = ""
+        chunk_index = 0
         
-        logger.info(f"Processing audio with AssemblyAI: {input_path}")
+        for para in paragraphs:
+            para = para.strip()
+            if not para:
+                continue
+                
+            if len(current_chunk) + len(para) < chunk_size:
+                current_chunk += para + "\n\n"
+            else:
+                if current_chunk.strip():
+                    chunks.append({
+                        "index": chunk_index,
+                        "text": self._clean_text(current_chunk),
+                        "metadata": {"chunk_index": chunk_index}
+                    })
+                    chunk_index += 1
+                current_chunk = para + "\n\n"
         
-        try:
-            # Transcribe audio file
-            transcript = self.transcriber.transcribe(str(input_path))
+        if current_chunk.strip():
+            chunks.append({
+                "index": chunk_index,
+                "text": self._clean_text(current_chunk),
+                "metadata": {"chunk_index": chunk_index}
+            })
+        
+        return chunks
+
+    def _clean_text(self, text: str) -> str:
+        """Clean up extracted text."""
+        import re
+        
+        # Remove excessive whitespace
+        text = re.sub(r'\n{3,}', '\n\n', text)
+        text = re.sub(r' {2,}', ' ', text)
+        
+        # Remove docling artifacts
+        text = re.sub(r'<[^>]+>', '', text)
+        text = re.sub(r'\[.*?\]\(.*?\)', '', text)  # Remove markdown links artifacts
+        
+        return text.strip()
+
+    def get_info(self) -> Dict[str, Any]:
+        """Get processor information."""
+        info = {
+            "processor": "DoclingProcessor",
+            "device": self.device,
+            "chunk_size": settings.CHUNK_SIZE,
+            "supported_formats": ["pdf", "docx", "pptx", "xlsx", "html", "md", "txt"]
+        }
+        
+        if TORCH_AVAILABLE and torch.cuda.is_available():
+            info["gpu"] = torch.cuda.get_device_name(0)
+            info["gpu_memory_gb"] = round(
+                torch.cuda.get_device_properties(0).total_memory / (1024**3), 1
+            )
+        
+        return info
+
+
+class AudioProcessor:
+    """Process audio files using AssemblyAI."""
+    
+    def __init__(self, api_key: str = None):
+        if not ASSEMBLYAI_AVAILABLE:
+            logger.warning("AssemblyAI not available")
+            self.available = False
+            return
             
-            if transcript.status == aai.TranscriptStatus.error:
-                raise RuntimeError(f"AssemblyAI transcription failed: {transcript.error}")
+        api_key = api_key or settings.ASSEMBLYAI_API_KEY
+        if not api_key:
+            logger.warning("No AssemblyAI API key provided")
+            self.available = False
+            return
             
-            # Get transcribed text
-            full_text = transcript.text
-            base_name = input_path.stem
-            
-            # Save as markdown
-            markdown_path = output_dir / f"{base_name}.md"
-            with open(markdown_path, 'w', encoding='utf-8') as f:
-                f.write(f"# Transcription of {input_path.name}\n\n{full_text}")
-            
-            # Create chunks for the transcription
-            chunks_data = [{
-                "chunk_index": 0,
-                "text": full_text,
+        aai.settings.api_key = api_key
+        self.transcriber = aai.Transcriber()
+        self.available = True
+        logger.info("AudioProcessor initialized with AssemblyAI")
+
+    def transcribe(self, audio_file: str, output_dir: str) -> Dict[str, Any]:
+        """Transcribe audio file to text."""
+        if not self.available:
+            raise RuntimeError("AssemblyAI not available")
+        
+        input_path = Path(audio_file)
+        output_path = Path(output_dir)
+        output_path.mkdir(parents=True, exist_ok=True)
+        
+        logger.info(f"Transcribing audio: {input_path.name}")
+        
+        # Transcribe
+        transcript = self.transcriber.transcribe(str(input_path))
+        
+        if transcript.status == aai.TranscriptStatus.error:
+            raise RuntimeError(f"Transcription failed: {transcript.error}")
+        
+        # Save transcript
+        text_file = output_path / f"{input_path.stem}.txt"
+        text_file.write_text(transcript.text, encoding="utf-8")
+        
+        # Create chunks from transcript
+        chunks = []
+        for i, utterance in enumerate(transcript.utterances or []):
+            chunks.append({
+                "index": i,
+                "text": utterance.text,
                 "metadata": {
-                    "source_file": str(input_path),
-                    "source_type": "audio_transcript",
-                    "length": len(full_text),
-                    "duration": getattr(transcript, 'audio_duration', 'unknown')
+                    "speaker": utterance.speaker,
+                    "start": utterance.start,
+                    "end": utterance.end
                 }
-            }]
-            
-            # Save chunks
-            chunks_path = output_dir / f"{base_name}_chunks.json"
-            with open(chunks_path, 'w', encoding='utf-8') as f:
-                json.dump(chunks_data, f, indent=2, ensure_ascii=False)
-            
-            logger.info(f"Audio transcription completed: {len(full_text)} characters")
-            
-            return {
-                "markdown_path": str(markdown_path),
-                "chunks_path": str(chunks_path)
-            }
-            
-        except Exception as e:
-            logger.error(f"Audio processing failed for {input_path}: {e}", exc_info=True)
-            raise RuntimeError(f"Audio processing failed: {e}")
-
-    def get_model_info(self) -> Dict[str, Any]:
-        """Get information about the loaded model and processor"""
+            })
+        
+        # If no utterances, chunk the full text
+        if not chunks:
+            processor = DoclingProcessor()
+            chunks = processor._simple_chunk(transcript.text)
+        
+        chunks_file = output_path / f"{input_path.stem}_chunks.json"
+        with open(chunks_file, "w", encoding="utf-8") as f:
+            json.dump(chunks, f, ensure_ascii=False, indent=2)
+        
         return {
-            "model_name": "granite-docling-258M-mlx",
-            "model_type": "vision-language-model",
-            "platform": "Apple Silicon (MLX)",
-            "supported_formats": {
-                "documents": ["pdf", "docx", "pptx", "html", "md", "txt"],
-                "images": ["png", "jpg", "jpeg", "bmp", "tiff", "webp"],
-                "audio": ["mp3", "wav", "m4a", "flac", "ogg", "mp4"] if self.transcriber else []
-            },
-            "features": [
-                "OCR and text extraction",
-                "Table detection and parsing", 
-                "Image analysis and description",
-                "Document structure preservation",
-                "Contextual chunking",
-                "Multi-modal understanding"
-            ]
+            "success": True,
+            "extracted_text_path": str(text_file),
+            "extracted_chunks_path": str(chunks_file),
+            "num_chunks": len(chunks)
         }
 
-# Create global processor instance
-granite_processor = GraniteDoclingProcessor()
+
+# Create singleton instances
+docling_processor = DoclingProcessor()
+
+try:
+    audio_processor = AudioProcessor()
+except Exception as e:
+    logger.warning(f"AudioProcessor initialization failed: {e}")
+    audio_processor = None
+
+
+# Backward compatibility - alias for granite_processor
+granite_processor = docling_processor
+
+
+class GraniteDoclingProcessor:
+    """Backward compatibility wrapper."""
+    
+    def __init__(self):
+        self.processor = docling_processor
+    
+    def process_document(self, *args, **kwargs):
+        return self.processor.process_document(*args, **kwargs)
+    
+    def get_info(self):
+        return self.processor.get_info()

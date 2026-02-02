@@ -1,38 +1,55 @@
-# Use the official NVIDIA CUDA runtime image as a base
-FROM nvidia/cuda:12.1.1-runtime-ubuntu22.04
+# GPU-enabled Dockerfile for Docling Service
+# Optimized for Linux with 8GB VRAM NVIDIA GPU
 
-# Set environment variables to prevent interactive prompts during installation
-ENV DEBIAN_FRONTEND=noninteractive
-ENV PYTHONUNBUFFERED=1
+FROM nvidia/cuda:12.1-runtime-ubuntu22.04
 
-# Install Python, pip, and other essential system dependencies
-RUN apt-get update && apt-get install -y \
-    python3.10 \
+# Set environment variables
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512 \
+    CUDA_VISIBLE_DEVICES=0
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.11 \
+    python3.11-venv \
     python3-pip \
-    git \
-    && rm -rf /var/lib/apt/lists/*
+    curl \
+    poppler-utils \
+    tesseract-ocr \
+    tesseract-ocr-eng \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -sf /usr/bin/python3.11 /usr/bin/python
 
-# Set the working directory inside the container
+# Set working directory
 WORKDIR /app
 
-# Copy the requirements file first to leverage Docker layer caching
+# Copy requirements
 COPY requirements.txt .
 
-# --- ROBUST INSTALLATION PROCESS ---
-# 1. Install torch separately. While not strictly necessary with the next step,
-#    it can sometimes help isolate issues with this specific large package.
-RUN pip install --no-cache-dir --timeout=600 torch --index-url https://download.pytorch.org/whl/cu121
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
 
-# 2. Install the rest of the requirements WITH A LONG TIMEOUT.
-#    This is the key fix. The timeout of 600 seconds (10 minutes) will now apply
-#    to the download of nvidia-cusparse and any other large packages.
-RUN pip install --no-cache-dir --timeout=600 -r requirements.txt
-
-# Copy the rest of the application code into the container
+# Copy application code
 COPY . .
 
-# Expose the port the application will run on
+# Create data directory
+RUN mkdir -p /app/data
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=30s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:8004/health || exit 1
+
+# Expose port
 EXPOSE 8004
 
-# Define the command to run the application
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8004"]
+# Run with uvicorn
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8004", "--workers", "1"]

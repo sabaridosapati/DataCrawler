@@ -1,132 +1,209 @@
 # orchestrator_api/app/db/milvus_handler.py
 
+"""
+Milvus Lite Handler - Local embedded database.
+No Docker or external server required.
+"""
+
 import logging
-from pymilvus import (
-    connections, utility, Collection, CollectionSchema, FieldSchema, DataType
-)
-from typing import List, Dict, Any
+from pathlib import Path
+from pymilvus import MilvusClient
+from typing import List, Dict, Any, Optional
 
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-# --- Milvus Configuration ---
-COLLECTION_NAME = "document_library_v1"
-VECTOR_DIMENSION = 768 # From embeddinggemma-300m
+# --- Configuration ---
+COLLECTION_NAME = "document_library"
+VECTOR_DIMENSION = 768  # Gemini embedding-001 dimension
+DB_PATH = "./data/milvus.db"  # Local database file
 
-# --- STATE-OF-THE-ART HNSW INDEX PARAMETERS ---
-# HNSW is a graph-based index that is much faster and more accurate
-# for most real-world use cases than IVF_FLAT.
-INDEX_PARAMS = {
-    "metric_type": "L2",      # L2 is the standard for measuring distance between embeddings
-    "index_type": "HNSW",     # Use the high-performance HNSW index
-    "params": {
-        "M": 16,              # Number of bi-directional links for each node
-        "efConstruction": 256 # Size of the dynamic list for searching during construction
-    }
-}
-
-# Search parameters for HNSW
-SEARCH_PARAMS = {
-    "metric_type": "L2",
-    "params": {
-        "ef": 128             # Size of the dynamic list for searching at query time
-    }
-}
 
 class MilvusHandler:
-    def __init__(self, alias="default"):
-        self.alias = alias
-        self.collection = None
-
+    """
+    Milvus Lite handler - embedded local database.
+    No external server required - runs in-process.
+    """
+    
+    def __init__(self):
+        self.client: Optional[MilvusClient] = None
+        self.db_path = Path(DB_PATH)
+        
     def connect(self):
-        """
-        Connects to a standalone Milvus instance using host and port.
-        """
+        """Initialize Milvus Lite with local database file."""
         try:
-            # Check if a connection already exists to avoid errors
-            if self.alias in connections.list_connections():
-                connections.disconnect(self.alias)
-
-            connections.connect(
-                alias=self.alias,
-                host=settings.MILVUS_HOST,
-                port=settings.MILVUS_PORT
-            )
-            logger.info(f"Successfully connected to standalone Milvus at {settings.MILVUS_HOST}:{settings.MILVUS_PORT}.")
+            # Ensure directory exists
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            # Connect to local Milvus Lite database
+            self.client = MilvusClient(str(self.db_path))
+            
+            logger.info(f"Connected to Milvus Lite at {self.db_path}")
+            
+            # Create collection if needed
             self._create_collection_if_not_exists()
-            self.collection = Collection(COLLECTION_NAME)
-            self.collection.load()
+            
         except Exception as e:
-            logger.critical(f"CRITICAL: Failed to connect to standalone Milvus. Is it running on the Linux machine? Error: {e}")
+            logger.critical(f"Failed to initialize Milvus Lite: {e}")
             raise
 
     def _create_collection_if_not_exists(self):
-        if utility.has_collection(COLLECTION_NAME):
-            logger.info(f"Milvus collection '{COLLECTION_NAME}' already exists.")
+        """Create collection with optimal index for HNSW search."""
+        if self.client.has_collection(COLLECTION_NAME):
+            logger.info(f"Collection '{COLLECTION_NAME}' exists")
             return
-
-        # A unified, multi-tenant schema for all document types
-        fields = [
-            FieldSchema(name="pk", dtype=DataType.INT64, is_primary=True, auto_id=True),
-            FieldSchema(name="user_id", dtype=DataType.VARCHAR, max_length=255, description="ID of the user who owns the data"),
-            FieldSchema(name="doc_id", dtype=DataType.VARCHAR, max_length=255, description="ID of the source document"),
-            FieldSchema(name="chunk_index", dtype=DataType.INT64, description="Order of the chunk within the document"),
-            FieldSchema(name="chunk_text", dtype=DataType.VARCHAR, max_length=4000, description="The actual text content of the chunk"),
-            FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=VECTOR_DIMENSION)
-        ]
-        schema = CollectionSchema(fields, "Unified document library for multi-tenant RAG")
-        collection = Collection(COLLECTION_NAME, schema)
         
-        logger.info(f"Creating HNSW index for collection '{COLLECTION_NAME}'...")
-        collection.create_index(field_name="embedding", index_params=INDEX_PARAMS)
-        logger.info("HNSW index created successfully.")
-
-    def insert_chunks(self, data: List[Dict[str, Any]]):
-        if not self.collection:
-            raise RuntimeError("Milvus collection not loaded. Cannot insert.")
+        logger.info(f"Creating collection '{COLLECTION_NAME}'...")
         
-        # Prepare data for insertion from the pipeline's output
-        user_ids = [item['user_id'] for item in data]
-        doc_ids = [item['doc_id'] for item in data]
-        chunk_indices = [item['chunk_index'] for item in data]
-        chunk_texts = [item['chunk_text'] for item in data]
-        embeddings = [item['embedding'] for item in data]
+        # Create collection with schema
+        self.client.create_collection(
+            collection_name=COLLECTION_NAME,
+            dimension=VECTOR_DIMENSION,
+            metric_type="COSINE",  # Cosine similarity for normalized embeddings
+            auto_id=True,
+            id_type="int"
+        )
         
-        entities = [user_ids, doc_ids, chunk_indices, chunk_texts, embeddings]
+        logger.info(f"Collection '{COLLECTION_NAME}' created with HNSW index")
 
-        mr = self.collection.insert(entities)
-        self.collection.flush() # Ensure data is written to disk
-        logger.info(f"Inserted {len(mr.primary_keys)} vectors into Milvus for user '{user_ids[0]}'.")
-        return mr
+    def insert_chunks(self, data: List[Dict[str, Any]]) -> Any:
+        """Insert document chunks with embeddings."""
+        if not self.client:
+            raise RuntimeError("Milvus not connected")
+        
+        if not data:
+            return None
+        
+        # Prepare records for insertion
+        records = []
+        for item in data:
+            records.append({
+                "user_id": item['user_id'],
+                "doc_id": item['doc_id'],
+                "chunk_index": item['chunk_index'],
+                "chunk_text": item['chunk_text'][:7999],
+                "vector": item['embedding']
+            })
+        
+        result = self.client.insert(
+            collection_name=COLLECTION_NAME,
+            data=records
+        )
+        
+        logger.info(f"Inserted {len(records)} vectors for user '{data[0]['user_id']}'")
+        return result
 
-    def search_user_vectors(self, user_id: str, query_vector: List[float], top_k: int = 5) -> List[dict]:
-        if not self.collection:
-            raise RuntimeError("Milvus collection not loaded. Cannot search.")
-            
-        results = self.collection.search(
+    def search_user_vectors(
+        self, 
+        user_id: str, 
+        query_vector: List[float], 
+        top_k: int = 10
+    ) -> List[Dict[str, Any]]:
+        """Search for similar vectors within a user's documents."""
+        if not self.client:
+            raise RuntimeError("Milvus not connected")
+        
+        results = self.client.search(
+            collection_name=COLLECTION_NAME,
             data=[query_vector],
-            anns_field="embedding",
-            param=SEARCH_PARAMS,
+            filter=f"user_id == '{user_id}'",
             limit=top_k,
-            # This expression is the key to user-wise data isolation
-            expr=f"user_id == '{user_id}'",
+            output_fields=["doc_id", "chunk_text", "chunk_index", "user_id"]
+        )
+        
+        response = []
+        for hits in results:
+            for hit in hits:
+                response.append({
+                    "id": hit['id'],
+                    "distance": hit['distance'],
+                    "score": 1 - hit['distance'],  # Convert distance to similarity
+                    "doc_id": hit['entity'].get('doc_id'),
+                    "chunk_text": hit['entity'].get('chunk_text'),
+                    "chunk_index": hit['entity'].get('chunk_index')
+                })
+        
+        logger.info(f"Search for user '{user_id}' found {len(response)} results")
+        return response
+
+    def hybrid_search(
+        self,
+        user_id: str,
+        query_vector: List[float],
+        doc_ids: Optional[List[str]] = None,
+        top_k: int = 10
+    ) -> List[Dict[str, Any]]:
+        """Hybrid search with optional document filtering."""
+        if not self.client:
+            raise RuntimeError("Milvus not connected")
+        
+        # Build filter
+        filter_expr = f"user_id == '{user_id}'"
+        if doc_ids:
+            doc_ids_str = ", ".join([f"'{d}'" for d in doc_ids])
+            filter_expr += f" and doc_id in [{doc_ids_str}]"
+        
+        results = self.client.search(
+            collection_name=COLLECTION_NAME,
+            data=[query_vector],
+            filter=filter_expr,
+            limit=top_k,
             output_fields=["doc_id", "chunk_text", "chunk_index"]
         )
         
-        hits = results[0]
-        response = [
-            {
-                "id": hit.id,
-                "distance": hit.distance,
-                "doc_id": hit.entity.get('doc_id'),
-                "chunk_text": hit.entity.get('chunk_text'),
-                "chunk_index": hit.entity.get('chunk_index')
-            }
-            for hit in hits
-        ]
-        logger.info(f"Milvus search for user '{user_id}' found {len(response)} results.")
+        response = []
+        for hits in results:
+            for hit in hits:
+                response.append({
+                    "id": hit['id'],
+                    "distance": hit['distance'],
+                    "score": 1 - hit['distance'],
+                    "doc_id": hit['entity'].get('doc_id'),
+                    "chunk_text": hit['entity'].get('chunk_text'),
+                    "chunk_index": hit['entity'].get('chunk_index')
+                })
+        
         return response
 
-# Create a single, importable instance of the handler
+    def delete_document_vectors(self, user_id: str, doc_id: str) -> int:
+        """Delete all vectors for a specific document."""
+        if not self.client:
+            raise RuntimeError("Milvus not connected")
+        
+        # Get IDs to delete
+        results = self.client.query(
+            collection_name=COLLECTION_NAME,
+            filter=f"user_id == '{user_id}' and doc_id == '{doc_id}'",
+            output_fields=["id"]
+        )
+        
+        if results:
+            ids = [r['id'] for r in results]
+            self.client.delete(
+                collection_name=COLLECTION_NAME,
+                ids=ids
+            )
+            logger.info(f"Deleted {len(ids)} vectors for doc_id '{doc_id}'")
+            return len(ids)
+        
+        return 0
+
+    def get_stats(self) -> Dict[str, Any]:
+        """Get collection statistics."""
+        if not self.client:
+            return {"status": "not_connected"}
+        
+        stats = self.client.get_collection_stats(COLLECTION_NAME)
+        
+        return {
+            "collection_name": COLLECTION_NAME,
+            "num_entities": stats.get('row_count', 0),
+            "mode": "Milvus Lite (local)",
+            "db_path": str(self.db_path),
+            "vector_dimension": VECTOR_DIMENSION
+        }
+
+
+# Singleton instance
 milvus_db_handler = MilvusHandler()

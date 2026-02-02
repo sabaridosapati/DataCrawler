@@ -2,10 +2,11 @@
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+
 class Settings(BaseSettings):
     """
-    Configuration settings for the Granite Docling service.
-    Optimized for Apple Silicon Mac with MLX support.
+    Configuration settings for the Docling service.
+    Optimized for Linux with NVIDIA GPU (8GB VRAM).
     """
     
     # AssemblyAI API key for audio processing (optional)
@@ -15,14 +16,19 @@ class Settings(BaseSettings):
     HOST: str = "0.0.0.0"
     PORT: int = 8004
     
-    # Model configuration
-    MODEL_NAME: str = "granite-docling-258M-mlx"
+    # Model configuration - CUDA/PyTorch backend for Linux
+    MODEL_NAME: str = "ds4sd/SmolDocling-256M-preview"  # Lightweight CUDA-compatible model
     MODEL_TYPE: str = "vision-language-model"
-    PLATFORM: str = "Apple Silicon (MLX)"
+    PLATFORM: str = "Linux (CUDA)"
+    
+    # GPU Memory Optimization for 8GB VRAM
+    GPU_MEMORY_FRACTION: float = 0.85  # Conservative to prevent OOM
+    CUDA_VISIBLE_DEVICES: str = "0"
     
     # Processing configuration
     MAX_TOKENS: int = 4096
     TEMPERATURE: float = 0.0
+    BATCH_SIZE: int = 1  # Process one page at a time for 8GB VRAM
     
     # Chunking configuration
     CHUNK_SIZE: int = 512
@@ -47,20 +53,27 @@ class Settings(BaseSettings):
         ".mp3", ".wav", ".m4a", ".flac", ".ogg", ".mp4"
     ]
     
+    # Memory management
+    CLEAR_CACHE_AFTER_PROCESSING: bool = True
+    USE_FLASH_ATTENTION: bool = True  # If supported
+    
     # Logging
     LOG_LEVEL: str = "INFO"
     LOG_FORMAT: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     
     model_config = SettingsConfigDict(env_file=".env", extra='ignore')
 
+
 settings = Settings()
 
 # Log current configuration on import
 if __name__ == "__main__":
-    print("=== Granite Docling Service Configuration ===")
+    print("=== Docling Service Configuration (Linux CUDA) ===")
     print(f"Model: {settings.MODEL_NAME}")
     print(f"Platform: {settings.PLATFORM}")
     print(f"Host: {settings.HOST}:{settings.PORT}")
+    print(f"GPU Memory Fraction: {settings.GPU_MEMORY_FRACTION}")
+    print(f"Batch Size: {settings.BATCH_SIZE}")
     print(f"Max tokens: {settings.MAX_TOKENS}")
     print(f"Temperature: {settings.TEMPERATURE}")
     print(f"Chunk size: {settings.CHUNK_SIZE}")

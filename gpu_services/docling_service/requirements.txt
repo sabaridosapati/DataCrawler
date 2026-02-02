@@ -1,40 +1,32 @@
-# gpu_services/docling_service/requirements.txt
+# Docling Service Requirements
+# For Linux with NVIDIA GPU (8GB VRAM)
 
-# FastAPI and web server
+# Docling core
+docling
+docling-core
+
+# FastAPI framework
 fastapi
-uvicorn[standard]
+uvicorn[standard]>=0.27.0
+
+# Data validation
 pydantic
 pydantic-settings
 
-# Core MLX and docling dependencies for granite-docling-258M-mlx
-docling[vlm,mlx]
-mlx
-mlx-vlm>=0.3.3
-docling-core
-
-# Transformers and tokenizers
-transformers
-tokenizers
-sentence-transformers
-
-# Image processing
-Pillow
+# PyTorch with CUDA support
+torch
 torchvision
 
-# Audio processing (optional - AssemblyAI)
+# PDF processing
+pypdfium2
+
+# Tokenizers for chunking
+sentence-transformers
+transformers
+
+# Audio processing (optional)
 assemblyai
 
 # Utilities
 numpy
-requests
-tqdm
-
-# Environment management
-python-dotenv
-
-# Logging
-loguru
-
-# Development and testing
-pytest
-httpx
+Pillow

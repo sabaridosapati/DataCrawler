@@ -1,54 +1,65 @@
 # gpu_services/embedding_service/main.py
 
+"""
+High-performance Embedding Service using Gemini API.
+Provides async endpoints for document and query embedding.
+"""
+
 import logging
 from contextlib import asynccontextmanager
-from typing import List
+from typing import List, Optional
 from fastapi import FastAPI, HTTPException, status
 from pydantic import BaseModel
-import torch
 
-# Import the enhanced processor instance
-from embedding import embedding_processor, EnhancedEmbeddingProcessor
+from embedding import embedding_processor, GeminiEmbeddingProcessor
+from config import settings
 
 # Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=getattr(logging, settings.LOG_LEVEL),
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
 
-processor_instance: EnhancedEmbeddingProcessor = None
+processor_instance: Optional[GeminiEmbeddingProcessor] = None
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Initialize the Enhanced EmbeddingProcessor when the app starts"""
+    """Initialize the Embedding Processor when the app starts"""
     global processor_instance
-    logger.info("Enhanced Embedding service is starting up...")
+    logger.info("Gemini Embedding service is starting up...")
+    
     try:
         processor_instance = embedding_processor
-        logger.info("Enhanced EmbeddingProcessor initialized successfully")
+        logger.info("GeminiEmbeddingProcessor initialized successfully")
         
         # Log model information
         model_info = processor_instance.get_model_info()
         logger.info(f"Model Info: {model_info}")
         
         # Perform health check
-        if processor_instance.health_check():
+        if await processor_instance.health_check():
             logger.info("Initial health check passed ✓")
         else:
             logger.warning("Initial health check failed!")
             
     except Exception as e:
-        logger.critical(f"Failed to initialize Enhanced EmbeddingProcessor: {e}")
+        logger.critical(f"Failed to initialize GeminiEmbeddingProcessor: {e}")
         raise
     
     yield
     
-    logger.info("Enhanced Embedding service is shutting down.")
+    logger.info("Gemini Embedding service is shutting down.")
+
 
 app = FastAPI(
-    title="Enhanced Embedding Service",
-    description="GPU-powered embedding service optimized for docling data processing with EmbeddingGemma-300M",
-    version="2.0.0",
+    title="Gemini Embedding Service",
+    description="High-performance embedding service using Gemini API for document and query embeddings",
+    version="3.0.0",
     lifespan=lifespan
 )
+
 
 # --- Pydantic Models for API ---
 class EmbedDocumentsRequest(BaseModel):
@@ -64,6 +75,7 @@ class EmbedDocumentsRequest(BaseModel):
             }
         }
 
+
 class EmbedQueryRequest(BaseModel):
     text: str
     
@@ -74,36 +86,41 @@ class EmbedQueryRequest(BaseModel):
             }
         }
 
+
 class EmbedResponse(BaseModel):
     embeddings: List[List[float]]
     processed_count: int
     embedding_dimension: int
 
+
 class EmbedQueryResponse(BaseModel):
     embedding: List[float]
     embedding_dimension: int
 
+
 class ModelInfoResponse(BaseModel):
     model_name: str
     embedding_dimension: int
-    device: str
-    torch_dtype: str
-    max_seq_length: str
-    gpu_memory_info: dict = None
+    backend: str
+    document_task_type: str
+    query_task_type: str
+    max_batch_size: int
+    max_concurrent_requests: int
+
 
 class HealthResponse(BaseModel):
     status: str
     model_loaded: bool
     health_check_passed: bool
-    gpu_available: bool
-    gpu_memory_info: dict = None
+    backend: str
+
 
 # --- API Endpoints ---
 @app.post("/embed-documents", response_model=EmbedResponse)
 async def embed_documents_endpoint(request: EmbedDocumentsRequest):
     """
-    Receives a batch of text chunks (typically from docling service) 
-    and returns their vector embeddings optimized for semantic search.
+    Embed a batch of document chunks using Gemini API.
+    Optimized for semantic search with RETRIEVAL_DOCUMENT task type.
     """
     if processor_instance is None:
         raise HTTPException(
@@ -115,20 +132,23 @@ async def embed_documents_endpoint(request: EmbedDocumentsRequest):
         return EmbedResponse(
             embeddings=[],
             processed_count=0,
-            embedding_dimension=processor_instance.model.get_sentence_embedding_dimension()
+            embedding_dimension=settings.EMBEDDING_DIMENSION
         )
-        
+    
     try:
         logger.info(f"Processing embedding request for {len(request.texts)} texts")
-        embeddings = processor_instance.embed_documents(request.texts)
+        embeddings = await processor_instance.embed_documents_async(request.texts)
         
         # Count non-zero embeddings (successfully processed)
-        processed_count = sum(1 for emb in embeddings if any(val != 0.0 for val in emb))
+        processed_count = sum(
+            1 for emb in embeddings 
+            if any(val != 0.0 for val in emb)
+        )
         
         return EmbedResponse(
             embeddings=embeddings,
             processed_count=processed_count,
-            embedding_dimension=len(embeddings[0]) if embeddings else 0
+            embedding_dimension=len(embeddings[0]) if embeddings else settings.EMBEDDING_DIMENSION
         )
         
     except Exception as e:
@@ -138,11 +158,12 @@ async def embed_documents_endpoint(request: EmbedDocumentsRequest):
             detail=f"Failed to generate document embeddings: {str(e)}"
         )
 
+
 @app.post("/embed-query", response_model=EmbedQueryResponse)
 async def embed_query_endpoint(request: EmbedQueryRequest):
     """
-    Receives a single query text and returns its vector embedding
-    optimized for semantic search against document embeddings.
+    Embed a single query using Gemini API.
+    Optimized for search with RETRIEVAL_QUERY task type.
     """
     if processor_instance is None:
         raise HTTPException(
@@ -151,8 +172,8 @@ async def embed_query_endpoint(request: EmbedQueryRequest):
         )
     
     try:
-        logger.info(f"Processing query embedding request")
-        embedding = processor_instance.embed_query(request.text)
+        logger.info("Processing query embedding request")
+        embedding = await processor_instance.embed_query_async(request.text)
         
         return EmbedQueryResponse(
             embedding=embedding,
@@ -166,28 +187,15 @@ async def embed_query_endpoint(request: EmbedQueryRequest):
             detail=f"Failed to generate query embedding: {str(e)}"
         )
 
+
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
-    """Comprehensive health check including GPU status and model verification"""
-    
-    gpu_available = torch.cuda.is_available()
-    gpu_memory_info = None
-    
-    if gpu_available:
-        try:
-            gpu_memory_info = {
-                "device_name": torch.cuda.get_device_name(0),
-                "total_memory": f"{torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f}GB",
-                "allocated_memory": f"{torch.cuda.memory_allocated(0) / 1024**3:.1f}GB",
-                "cached_memory": f"{torch.cuda.memory_reserved(0) / 1024**3:.1f}GB"
-            }
-        except Exception as e:
-            gpu_memory_info = {"error": str(e)}
-    
+    """Comprehensive health check including API connectivity"""
     health_check_passed = False
+    
     if processor_instance:
         try:
-            health_check_passed = processor_instance.health_check()
+            health_check_passed = await processor_instance.health_check()
         except Exception as e:
             logger.error(f"Health check error: {e}")
     
@@ -197,70 +205,56 @@ async def health_check():
         status=status_value,
         model_loaded=processor_instance is not None,
         health_check_passed=health_check_passed,
-        gpu_available=gpu_available,
-        gpu_memory_info=gpu_memory_info
+        backend="gemini-api"
     )
+
 
 @app.get("/model-info", response_model=ModelInfoResponse)
 async def model_info():
-    """Get detailed information about the loaded embedding model"""
-    
+    """Get detailed information about the embedding configuration"""
     if processor_instance is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Embedding processor not initialized"
         )
     
-    model_info = processor_instance.get_model_info()
-    
-    gpu_memory_info = None
-    if torch.cuda.is_available():
-        try:
-            gpu_memory_info = {
-                "device_name": torch.cuda.get_device_name(0),
-                "total_memory": f"{torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f}GB",
-                "allocated_memory": f"{torch.cuda.memory_allocated(0) / 1024**3:.1f}GB"
-            }
-        except Exception:
-            pass
-    
-    return ModelInfoResponse(
-        model_name=model_info["model_name"],
-        embedding_dimension=model_info["embedding_dimension"],
-        device=model_info["device"],
-        torch_dtype=model_info["torch_dtype"],
-        max_seq_length=str(model_info["max_seq_length"]),
-        gpu_memory_info=gpu_memory_info
-    )
+    info = processor_instance.get_model_info()
+    return ModelInfoResponse(**info)
+
 
 @app.get("/")
 async def root():
     """Root endpoint with service information"""
     return {
-        "service": "Enhanced Embedding Service",
-        "version": "2.0.0",
-        "description": "GPU-powered embedding service optimized for docling data processing",
-        "model": "google/embeddinggemma-300m",
-        "optimizations": [
-            "RTX 4050 (6GB VRAM) optimized batch sizes",
-            "Docling text cleaning and preprocessing", 
-            "L2 normalized embeddings for better similarity",
-            "Robust error handling and fallbacks"
+        "service": "Gemini Embedding Service",
+        "version": "3.0.0",
+        "description": "High-performance embedding service using Gemini API",
+        "model": settings.EMBEDDING_MODEL,
+        "embedding_dimension": settings.EMBEDDING_DIMENSION,
+        "backend": "gemini-api",
+        "features": [
+            "Async batch processing",
+            "RETRIEVAL_DOCUMENT task type for documents",
+            "RETRIEVAL_QUERY task type for queries",
+            "L2 normalized embeddings",
+            "Docling artifact cleaning",
+            "Retry logic with exponential backoff"
         ],
         "endpoints": {
             "embed_documents": "/embed-documents",
-            "embed_query": "/embed-query", 
+            "embed_query": "/embed-query",
             "health": "/health",
             "model_info": "/model-info",
             "docs": "/docs"
         }
     }
 
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(
-        app, 
-        host="0.0.0.0", 
-        port=8002,
+        app,
+        host=settings.HOST,
+        port=settings.PORT,
         log_level="info"
     )

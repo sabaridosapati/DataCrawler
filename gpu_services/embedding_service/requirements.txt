@@ -1,41 +1,22 @@
-# gpu_services/embedding_service/requirements.txt
+# Gemini Embedding Service Requirements
+# No GPU/torch dependencies - uses cloud API
 
-# FastAPI and web server
+# Gemini SDK
+google-genai
+
+# FastAPI framework
 fastapi
 uvicorn[standard]
+
+# Data validation
 pydantic
 pydantic-settings
 
-# Core ML libraries optimized for RTX 4050
-torch
-transformers
-sentence-transformers
-tokenizers
+# Retry logic
+tenacity
 
-# GPU optimization
-accelerate
-optimum
+# Async HTTP
+aiohttp
 
-# Numerical computing
+# Numerical operations (for normalization)
 numpy
-scipy
-
-# Text processing for docling integration
-regex
-
-# Utilities
-requests
-tqdm
-
-# Environment management
-python-dotenv
-
-# Optional: Memory optimization for smaller GPUs
-# bitsandbytes  # Uncomment if you need quantization
-
-# Logging and monitoring
-loguru
-
-# Development and testing
-pytest
-httpx

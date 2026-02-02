@@ -10,4 +10,5 @@ httpx
 pydantic[email]
 neo4j
 pymilvus
+milvus-lite
 loguru

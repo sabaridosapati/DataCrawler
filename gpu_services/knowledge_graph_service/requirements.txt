@@ -1,18 +1,21 @@
+# Knowledge Graph Service Requirements
+
+# FastAPI framework
 fastapi
 uvicorn[standard]
+
+# Data validation
 pydantic
 pydantic-settings
-python-dotenv
 
-# The new, powerful graph building library
-graphiti-core
-
-# Neo4j driver is still required for the library to connect
+# Neo4j async driver
 neo4j
+
+# HTTP client for service communication
 httpx
 
-vllm
+# Retry logic
+tenacity
 
-# Add these two lines for multimodal support
-timm
-Pillow
+# NEW Google GenAI SDK (not the old google-generativeai)
+google-genai

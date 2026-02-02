@@ -89,3 +89,92 @@ async def add_entities_and_link_to_document(doc_id: str, entities: List[Dict[str
     params = {"doc_id": doc_id, "entities": entities}
     await db_handler.execute_query(query, params)
     logger.info(f"Added {len(entities)} entities to Document {doc_id} in graph.")
+
+
+async def add_relationships_to_graph(doc_id: str, relationships: List[Dict[str, Any]]):
+    """
+    Add extracted relationships between entities.
+    Each relationship has: source, target, relationship_type
+    """
+    if not relationships:
+        return
+    
+    query = """
+    MATCH (d:Document {id: $doc_id})
+    UNWIND $relationships AS rel
+    MERGE (source:Entity {name: rel.source})
+    MERGE (target:Entity {name: rel.target})
+    MERGE (source)-[r:RELATES_TO {type: rel.relationship_type, doc_id: $doc_id}]->(target)
+    """
+    params = {"doc_id": doc_id, "relationships": relationships}
+    await db_handler.execute_query(query, params)
+    logger.info(f"Added {len(relationships)} relationships for Document {doc_id}")
+
+
+async def get_graph_context_for_query(user_id: str, keywords: List[str], max_nodes: int = 20) -> List[Dict[str, Any]]:
+    """
+    Retrieve relevant graph context for RAG based on keywords.
+    Returns entities and their relationships from user's documents.
+    """
+    if not keywords:
+        return []
+    
+    # Build regex pattern for keyword matching
+    keyword_pattern = "|".join([f"(?i).*{k}.*" for k in keywords[:5]])  # Limit to 5 keywords
+    
+    query = """
+    MATCH (u:User {email: $user_id})-[:OWNS]->(d:Document)-[:CONTAINS_ENTITY]->(e:Entity)
+    WHERE e.name =~ $pattern
+    OPTIONAL MATCH (e)-[r:RELATES_TO]-(related:Entity)
+    RETURN DISTINCT 
+        e.name AS entity,
+        e.type AS entity_type,
+        collect(DISTINCT {
+            related: related.name,
+            relationship: r.type
+        })[..5] AS relationships,
+        d.id AS doc_id
+    LIMIT $max_nodes
+    """
+    
+    try:
+        async with db_handler._driver.session() as session:
+            result = await session.run(query, {
+                "user_id": user_id,
+                "pattern": keyword_pattern,
+                "max_nodes": max_nodes
+            })
+            records = await result.data()
+            
+            logger.info(f"Retrieved {len(records)} graph nodes for query context")
+            return records
+    except Exception as e:
+        logger.error(f"Graph context retrieval failed: {e}")
+        return []
+
+
+async def get_entity_neighborhood(user_id: str, entity_name: str, depth: int = 2) -> List[Dict[str, Any]]:
+    """
+    Get the neighborhood of an entity for detailed exploration.
+    Returns connected entities up to specified depth.
+    """
+    query = """
+    MATCH (u:User {email: $user_id})-[:OWNS]->(d:Document)-[:CONTAINS_ENTITY]->(e:Entity {name: $entity_name})
+    CALL apoc.neighbors.byhop(e, "RELATES_TO", $depth) YIELD nodes
+    UNWIND nodes AS neighbor
+    RETURN DISTINCT neighbor.name AS name, neighbor.type AS type
+    LIMIT 50
+    """
+    
+    try:
+        async with db_handler._driver.session() as session:
+            result = await session.run(query, {
+                "user_id": user_id,
+                "entity_name": entity_name,
+                "depth": depth
+            })
+            records = await result.data()
+            return records
+    except Exception as e:
+        logger.warning(f"Entity neighborhood query failed: {e}")
+        return []

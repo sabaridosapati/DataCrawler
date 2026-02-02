@@ -1,35 +1,19 @@
-# gpu_services/llm_service/requirements.txt
+# Gemini LLM Service Requirements
+# No GPU/torch dependencies - uses cloud API
 
-# FastAPI and web server
+# Gemini SDK
+google-genai
+
+# FastAPI framework
 fastapi
 uvicorn[standard]
+
+# Data validation
 pydantic
 pydantic-settings
 
-# Core ML libraries
-torch
-transformers
-accelerate
-tokenizers
+# Retry logic
+tenacity
 
-# Vision capabilities
-Pillow
-torchvision
-
-# Model optimization
-optimum
-bitsandbytes
-
-# Additional utilities
-numpy
-requests
-tqdm
-
-# Logging and monitoring
-loguru
-
-# Optional: For flash attention (if available)
-flash-attn
-
-# Environment management
-python-dotenv
+# Async HTTP (for faster performance)
+aiohttp

@@ -26,11 +26,17 @@ chat_collection = db.get_collection("chats")
 async def get_user_by_username(username: str) -> Optional[UserInDB]:
     """Retrieves a single user from the database by their username (email)."""
     user_data = await user_collection.find_one({"username": username})
-    return UserInDB(**user_data, id=user_data['_id']) if user_data else None
+    if user_data:
+        # Convert _id to id for the model
+        user_data["id"] = str(user_data.pop("_id"))
+        return UserInDB(**user_data)
+    return None
 
 async def create_user(user: UserInDB) -> UserInDB:
     """Inserts a new user record into the database."""
-    await user_collection.insert_one(user.model_dump())
+    user_dict = user.model_dump(exclude={'id'})
+    result = await user_collection.insert_one(user_dict)
+    user.id = str(result.inserted_id)
     return user
 
 

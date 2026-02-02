@@ -62,6 +62,10 @@ async def start_document_processing(doc_id: str):
             })
         
         milvus_db_handler.insert_chunks(data_to_insert)
+        
+        # Invalidate BM25 cache for this user (new content added)
+        from app.services.hybrid_retriever import hybrid_retriever
+        hybrid_retriever.invalidate_bm25_cache(doc.user_id)
 
         # STEP 6: If all steps succeed, mark the document as COMPLETED.
         await update_document_status(doc_id, DocumentStatus.COMPLETED)
