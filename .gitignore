@@ -1,8 +1,12 @@
 venv/
+datacrawlerenv/
 *.env
 .cache/
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
-*.db               
+*.db
+data/user_files/
+volumes/
+MEMORY.md               

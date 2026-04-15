@@ -22,8 +22,9 @@ class Settings(BaseSettings):
     NEO4J_USER: str = "neo4j"
     NEO4J_PASSWORD: str = "password"
 
-    # Milvus Lite (local embedded database)
-    MILVUS_DB_PATH: str = "./data/milvus.db"
+    # Milvus (Docker server)
+    MILVUS_HOST: str = "localhost"
+    MILVUS_PORT: int = 19530
 
     # Local Service URLs (All on same machine)
     LLM_SERVICE_URL: str = "http://localhost:8001"

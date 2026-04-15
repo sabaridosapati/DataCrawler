@@ -291,7 +291,7 @@ def show_chat_page():
                 # Show sources if available
                 if "sources" in msg:
                     sources_html = " ".join([
-                        f'<span class="source-badge">{s["source"]}: {s["score"]:.2f}</span>'
+                        f'<span class="source-badge">{s["source"]}: {s["score"]*100:.1f}%</span>'
                         for s in msg.get("sources", [])[:3]
                     ])
                     st.markdown(sources_html, unsafe_allow_html=True)
@@ -451,7 +451,7 @@ def show_search_page():
                     for i, r in enumerate(results, 1):
                         score = r.get("score", 0)
                         
-                        with st.expander(f"#{i} • Score: {score:.4f} • via {r.get('source', 'vector')}", expanded=i<=3):
+                        with st.expander(f"#{i} • Relevance: {score*100:.1f}% • via {r.get('source', 'vector')}", expanded=i<=3):
                             st.caption(f"Document: {r.get('doc_id', 'unknown')[:16]}...")
                             st.markdown(r.get("chunk_text", "No content"))
 

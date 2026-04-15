@@ -19,7 +19,7 @@ from app.models.user import UserInDB
 from app.db.mongo_handler import get_chat_session, create_or_update_chat_session
 from app.db.milvus_handler import milvus_db_handler
 from app.services.hybrid_retriever import hybrid_retriever
-from app.services import gpu_node_client
+from app.services.gpu_node_client import gpu_node_client
 
 logger = logging.getLogger(__name__)
 
@@ -56,15 +56,13 @@ class SearchResponse(BaseModel):
 
 # --- RAG Prompts ---
 
-RAG_SYSTEM_PROMPT = """You are an intelligent assistant that answers questions based on the provided context from the user's documents.
+RAG_SYSTEM_PROMPT = """You are an intelligent assistant that answers questions using the user's uploaded documents when available.
 
 INSTRUCTIONS:
-1. Answer ONLY based on the provided context. Do not use external knowledge.
-2. If the context doesn't contain enough information, say "I don't have enough information in your documents to answer this question."
-3. Be precise and cite specific details from the context when possible.
-4. If the question is unclear, ask for clarification.
-5. Format your response clearly with markdown when appropriate.
-6. When citing information, reference which document it came from if available.
+1. If relevant document context is provided below, answer primarily from that context and cite the source.
+2. If no relevant documents are found (context says "No relevant documents found"), answer using your general knowledge and clearly state: "I couldn't find this in your uploaded documents, so here's what I know from general knowledge:"
+3. Be precise and helpful in all cases.
+4. Format your response clearly with markdown when appropriate.
 
 CONTEXT FROM USER'S DOCUMENTS:
 {context}
@@ -78,7 +76,7 @@ CONVERSATION HISTORY:
 def format_context(chunks: List[Any]) -> str:
     """Format retrieved chunks into context string."""
     if not chunks:
-        return "No relevant documents found."
+        return "No relevant documents found. The user has not uploaded any documents that are relevant to this query."
     
     context_parts = []
     for i, chunk in enumerate(chunks, 1):

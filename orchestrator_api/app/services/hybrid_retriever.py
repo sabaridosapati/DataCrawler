@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from collections import defaultdict
 
 from app.db.milvus_handler import milvus_db_handler
-from app.services import gpu_node_client
+from app.services.gpu_node_client import gpu_node_client
 
 logger = logging.getLogger(__name__)
 
@@ -181,8 +181,8 @@ class HybridRetriever:
         # 4. Reciprocal Rank Fusion
         fused_results = self._reciprocal_rank_fusion(all_results, rrf_k)
         
-        # 5. Sort by fused score and take top_k
-        fused_results.sort(key=lambda x: x.score, reverse=True)
+        # 5. Sort by RRF score (for ranking), display cosine similarity as the score
+        fused_results.sort(key=lambda x: x.metadata.get("sort_key", 0), reverse=True)
         final_results = fused_results[:top_k]
         
         logger.info(f"Retrieved {len(final_results)} results via hybrid retrieval")
@@ -312,12 +312,13 @@ Hypothetical answer:"""
         
         # Query all user's chunks from Milvus
         try:
-            # Get a sample embedding to search all docs
+            # Use a zero vector to fetch all docs; pass min_similarity=0 to skip the relevance filter
             sample_embedding = [0.0] * 768  # Zero vector
             results = milvus_db_handler.search_user_vectors(
                 user_id=user_id,
                 query_vector=sample_embedding,
-                top_k=1000  # Get all documents
+                top_k=1000,
+                min_similarity=0.0  # Fetch everything for BM25 indexing, no threshold
             )
             
             for r in results:
@@ -357,12 +358,14 @@ Hypothetical answer:"""
             
             fused_scores[key] = rrf_score
         
-        # Create final results with RRF scores
+        # Create final results — rank by RRF but display the original cosine similarity score
         final_results = []
         for key, rrf_score in fused_scores.items():
             result = best_result[key]
-            result.score = rrf_score
             result.metadata["rrf_score"] = rrf_score
+            result.metadata["cosine_score"] = result.score
+            # result.score stays as cosine similarity for display; sort key uses rrf_score
+            result.metadata["sort_key"] = rrf_score
             final_results.append(result)
         
         return final_results

@@ -144,12 +144,21 @@ class ServiceClient:
         """
         logger.info(f"Building knowledge graph for doc_id: {doc_id}, chunks: {len(chunks)}")
         
+        # Normalize chunk format to match KG service schema
+        normalized_chunks = []
+        for i, chunk in enumerate(chunks):
+            normalized_chunks.append({
+                "chunk_index": chunk.get("chunk_index") or chunk.get("index") or chunk.get("metadata", {}).get("chunk_index", i),
+                "text": chunk.get("text", ""),
+                "metadata": chunk.get("metadata", {})
+            })
+
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             try:
                 payload = {
-                    "doc_id": doc_id, 
-                    "user_id": user_id, 
-                    "chunks": chunks
+                    "doc_id": doc_id,
+                    "user_id": user_id,
+                    "chunks": normalized_chunks
                 }
                 response = await client.post(self.graph_builder_url, json=payload)
                 response.raise_for_status()
